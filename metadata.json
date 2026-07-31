@@ -1,0 +1,6 @@
+{
+  "name": "Consulta de Fontes de Terminais Claro NET",
+  "description": "Aplicativo para pesquisar e verificar fontes de alimentação compatíveis com terminais, decodificadores, eMTA, cable modems e ONTs da Claro NET.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
