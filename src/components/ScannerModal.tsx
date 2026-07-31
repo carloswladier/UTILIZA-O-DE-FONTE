@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Camera, Upload, Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ArrowRight, Zap, Copy } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
+import { recognize } from 'tesseract.js';
 import { TERMINALS_DATA } from '../data/terminalsData';
 import { Terminal } from '../types';
 
@@ -137,53 +138,135 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
     return JSON.parse(cleanedText);
   };
 
-  const runLocalFallback = (text: string) => {
-    const query = text.toLowerCase().trim();
+  const runClientOcrAndMatch = async (imageBase64: string | null, text: string) => {
+    let ocrText = '';
+    if (imageBase64) {
+      try {
+        const res = await recognize(imageBase64, 'eng');
+        ocrText = res.data.text || '';
+      } catch (e) {
+        console.warn('OCR em tempo de execução falhou:', e);
+      }
+    }
+
+    const combinedText = (ocrText + ' ' + text).trim();
     const cleanAlpha = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanQ = cleanAlpha(query);
+    const cleanQ = cleanAlpha(combinedText);
 
-    let matchedTerminal: Terminal | null = null;
-    let matchedPs: any = null;
+    if (!cleanQ) {
+      return {
+        modeloFonte: 'Não identificado',
+        sapCode: 'N/A',
+        tensao: 'N/A',
+        corrente: 'N/A',
+        fabricante: 'N/A',
+        partNumber: 'N/A',
+        modeloTerminalSugerido: 'N/A',
+        resumoExplicativo: 'Por favor, envie uma foto legível da etiqueta ou digite o P/N no campo de busca.'
+      };
+    }
 
-    if (cleanQ) {
-      for (const t of TERMINALS_DATA) {
-        for (const ps of t.powerSupplies) {
-          if (
-            (ps.sapCode && cleanQ.includes(cleanAlpha(ps.sapCode))) ||
-            (ps.model && cleanQ.includes(cleanAlpha(ps.model))) ||
-            (ps.partNumber && ps.partNumber !== 'N/A' && cleanQ.includes(cleanAlpha(ps.partNumber)))
-          ) {
-            matchedTerminal = t;
-            matchedPs = ps;
-            break;
+    let bestMatch: { terminal: Terminal; ps: any; score: number } | null = null;
+    let maxScore = 0;
+
+    for (const t of TERMINALS_DATA) {
+      for (const ps of t.powerSupplies) {
+        let score = 0;
+
+        // 1. SAP Code match (110 pts)
+        if (ps.sapCode && ps.sapCode.length >= 6 && cleanQ.includes(ps.sapCode)) {
+          score += 110;
+        }
+
+        // 2. Part Number match (100 pts)
+        if (ps.partNumber && ps.partNumber !== 'N/A') {
+          const psPnClean = cleanAlpha(ps.partNumber);
+          const corePnMatch = ps.partNumber.match(/\d{7,10}/);
+          if (psPnClean.length >= 5 && cleanQ.includes(psPnClean)) {
+            score += 100;
+          } else if (corePnMatch && cleanQ.includes(corePnMatch[0])) {
+            score += 95;
           }
         }
-        if (matchedTerminal) break;
-        if (cleanQ.includes(cleanAlpha(t.name)) || cleanQ.includes(cleanAlpha(t.id))) {
-          matchedTerminal = t;
-          matchedPs = t.powerSupplies[0];
-          break;
+
+        // 3. Model match (85 pts)
+        if (ps.model) {
+          const modelClean = cleanAlpha(ps.model);
+          if (modelClean.length >= 5 && cleanQ.includes(modelClean)) {
+            score += 85;
+          } else {
+            const parts = ps.model.split(/[\s-]/);
+            for (const p of parts) {
+              const pClean = cleanAlpha(p);
+              if (pClean.length >= 6 && cleanQ.includes(pClean)) {
+                score += 50;
+                break;
+              }
+            }
+          }
+        }
+
+        // 4. Voltage + Current match (40 pts)
+        const vClean = t.voltage.replace(/[^\d]/g, '');
+        const cClean = t.current.replace(',', '.').replace(/[^\d.]/g, '');
+
+        const hasVoltage = combinedText.match(new RegExp(`\\b${vClean}\\.?0?\\s*v`, 'i'));
+        const hasCurrent = combinedText.match(new RegExp(`\\b${cClean.replace('.', '\\.')}\\s*a`, 'i'));
+
+        if (hasVoltage && hasCurrent) {
+          score += 40;
+        }
+
+        // 5. Manufacturer match (20 pts)
+        if (ps.manufacturer) {
+          const mfgParts = ps.manufacturer.split(/[\s/]/);
+          for (const m of mfgParts) {
+            const mClean = cleanAlpha(m);
+            if (mClean.length >= 4 && cleanQ.includes(mClean)) {
+              score += 20;
+              break;
+            }
+          }
+        }
+
+        if (score > maxScore) {
+          maxScore = score;
+          bestMatch = { terminal: t, ps, score };
         }
       }
     }
 
-    if (!matchedTerminal) {
-      matchedTerminal = TERMINALS_DATA[0]; // S4KW3
-      matchedPs = matchedTerminal.powerSupplies[0];
-    }
+    // Extract raw regex fields from OCR text for fallback DISPLAY
+    const detectedVoltageMatch = combinedText.match(/(\d{1,2}(?:\.\d)?)\s*V(?:DC)?/i);
+    const detectedCurrentMatch = combinedText.match(/(\d{1,2}(?:\.\d)?)\s*A\b/i);
+    const detectedPnMatch = combinedText.match(/(?:P\/N|PN|PART\s*NUMBER)[:\s]*([A-Z0-9-]+)/i) || combinedText.match(/\b(\d{9}(?:-[A-Z0-9]+)?)\b/);
+    const detectedModelMatch = combinedText.match(/(?:MODELO|MODEL|MOD)[:\s]*([A-Z0-9-]+)/i);
+    const detectedMfgMatch = combinedText.match(/\b(SAGEMCOM|MOSO|NETBIT|FLEX|LITE\s*ON|AC\s*BEL|HUNTKEY|LEADER|DELTA)\b/i);
 
-    return {
-      modeloFonte: matchedPs?.model || (text || 'Fonte Sagemcom / MOSO 12V 1.5A'),
-      sapCode: matchedPs?.sapCode || '22062068',
-      tensao: matchedTerminal?.voltage || '12V',
-      corrente: matchedTerminal?.current || '1.5A',
-      fabricante: matchedPs?.manufacturer || 'Sagemcom / MOSO',
-      partNumber: matchedPs?.partNumber || '191698791-XX',
-      modeloTerminalSugerido: matchedTerminal?.name || 'S4KW3 / S4KCW3 / S4KCW5',
-      resumoExplicativo: text 
-        ? `Leitura local realizada para "${text}". Equipamento e fonte homologados pelo Book Claro NET.`
-        : 'Análise por correspondência direta no Book de Fontes & Terminais Claro NET.'
-    };
+    if (bestMatch && maxScore >= 35) {
+      const { terminal, ps } = bestMatch;
+      return {
+        modeloFonte: ps.model || 'Fonte Homologada Claro NET',
+        sapCode: ps.sapCode || 'N/A',
+        tensao: terminal.voltage,
+        corrente: terminal.current,
+        fabricante: ps.manufacturer || (detectedMfgMatch ? detectedMfgMatch[1].toUpperCase() : 'Fabricante Homologado'),
+        partNumber: ps.partNumber !== 'N/A' ? ps.partNumber : (detectedPnMatch ? detectedPnMatch[1] : 'N/A'),
+        modeloTerminalSugerido: terminal.name,
+        resumoExplicativo: `Reconhecido da imagem: Fonte ${ps.model} (P/N: ${ps.partNumber}, SAP: ${ps.sapCode}) homologada para o equipamento ${terminal.name} (${terminal.voltage} ${terminal.current}).`
+      };
+    } else {
+      return {
+        modeloFonte: detectedModelMatch ? detectedModelMatch[1] : 'Modelo não cadastrado no Book',
+        sapCode: 'Verificar etiqueta',
+        tensao: detectedVoltageMatch ? `${detectedVoltageMatch[1]}V` : 'N/A',
+        corrente: detectedCurrentMatch ? `${detectedCurrentMatch[1]}A` : 'N/A',
+        fabricante: detectedMfgMatch ? detectedMfgMatch[1].toUpperCase() : 'Não identificado',
+        partNumber: detectedPnMatch ? detectedPnMatch[1] : 'N/A',
+        modeloTerminalSugerido: 'Não encontrado no Book',
+        resumoExplicativo: `Leitura local via OCR concluída. Tensão lida: ${detectedVoltageMatch ? detectedVoltageMatch[1]+'V' : '?'}, Corrente: ${detectedCurrentMatch ? detectedCurrentMatch[1]+'A' : '?'}, P/N: ${detectedPnMatch ? detectedPnMatch[1] : '?'}. Digite o P/N no campo se necessário.`
+      };
+    }
   };
 
   const handleAnalyze = async () => {
@@ -218,7 +301,7 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
         const contentType = response.headers.get('content-type') || '';
         if (response.ok && contentType.includes('application/json')) {
           const data = await response.json();
-          if (data.result) {
+          if (data.result && (data.result.modeloFonte || data.result.partNumber || data.result.sapCode)) {
             dataResult = data.result;
           }
         }
@@ -235,9 +318,9 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
         }
       }
 
-      // 3. Fallback inteligente de busca no Book de Fontes local caso a IA estática não tenha resposta
+      // 3. OCR local via Tesseract.js e busca inteligente no Book de Fontes
       if (!dataResult) {
-        dataResult = runLocalFallback(textQuery.trim());
+        dataResult = await runClientOcrAndMatch(finalImage, textQuery.trim());
       }
 
       setAiResult(dataResult);
