@@ -15,18 +15,53 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({ onSelectTerminal }) 
   const [aiResult, setAiResult] = useState<any | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const resizeImage = (dataUrl: string, maxWidth = 1600, maxHeight = 1600): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width / height > maxWidth / maxHeight) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 8 * 1024 * 1024) {
-      setError('A imagem deve ter no máximo 8MB.');
-      return;
-    }
-
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setSelectedImage(reader.result as string);
+    reader.onloadend = async () => {
+      const rawDataUrl = reader.result as string;
+      try {
+        const compressed = await resizeImage(rawDataUrl, 1600, 1600);
+        setSelectedImage(compressed);
+      } catch (err) {
+        setSelectedImage(rawDataUrl);
+      }
       setError(null);
       setAiResult(null);
     };
@@ -44,16 +79,36 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({ onSelectTerminal }) 
     setAiResult(null);
 
     try {
+      let finalImage = selectedImage;
+      if (selectedImage && selectedImage.length > 500000) {
+        finalImage = await resizeImage(selectedImage, 1200, 1200);
+      }
+
       const response = await fetch('/api/analyze-font', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageBase64: selectedImage,
+          imageBase64: finalImage,
           textQuery: textQuery.trim()
         })
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = {};
+
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const responseText = await response.text();
+        console.error('Resposta não-JSON do servidor:', responseText);
+        if (response.status === 413) {
+          throw new Error('A imagem é muito grande para o servidor. Escolha uma foto com tamanho menor.');
+        } else if (response.status === 404) {
+          throw new Error('Endpoint da IA não encontrado (404). Se o aplicativo estiver hospedado no Hostinger ou servidor estático, o backend Node.js (server.ts) precisa estar rodando.');
+        } else {
+          throw new Error(`Erro no servidor (Status ${response.status}). Verifique a conexão com o backend.`);
+        }
+      }
 
       if (!response.ok || data.error) {
         throw new Error(data.error || 'Falha ao analisar rótulo.');

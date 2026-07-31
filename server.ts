@@ -7,7 +7,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // API Route: Smart Label Analyzer via Gemini
   app.post("/api/analyze-font", async (req, res) => {
@@ -55,12 +56,23 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
 
       let contents: any[] = [];
       if (imageBase64) {
+        let detectedMimeType = mimeType;
+        let cleanBase64 = imageBase64;
+
+        const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          detectedMimeType = match[1];
+          cleanBase64 = match[2];
+        } else {
+          cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+        }
+
         contents = [
           prompt,
           {
             inlineData: {
-              data: imageBase64.replace(/^data:image\/\w+;base64,/, ""),
-              mimeType
+              data: cleanBase64,
+              mimeType: detectedMimeType
             }
           }
         ];
