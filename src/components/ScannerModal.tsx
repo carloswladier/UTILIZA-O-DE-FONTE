@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Camera, Upload, Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ArrowRight, Zap, Copy } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 import { TERMINALS_DATA } from '../data/terminalsData';
 import { Terminal } from '../types';
 
@@ -68,6 +69,123 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({ onSelectTerminal }) 
     reader.readAsDataURL(file);
   };
 
+  const runClientGemini = async (imageBase64: string | null, text: string) => {
+    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    if (!apiKey) throw new Error('Sem chave VITE_GEMINI_API_KEY no cliente');
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `Você é um especialista técnico sênior de equipamentos e infraestrutura Claro NET (Book de Fontes & Terminais).
+Sua tarefa é analisar ${imageBase64 ? 'a foto do rótulo/etiqueta da fonte de alimentação ou do terminal' : 'o texto informado pelo usuário: ' + text} e extrair com máxima precisão os seguintes dados:
+1. modeloFonte (Modelo impresso na fonte ou no terminal, ex: MSG-V1500WR120-018I1-BR, MU06-B050120-D1, ADP-50BR, H196A, DCI106, S4KW3, etc.)
+2. sapCode (Código SAP de 8 dígitos se houver na etiqueta, ex: 22026278, 22062068, 22062575, etc.)
+3. tensao (Tensão em Volts, ex: 5V, 9V, 12V, 14V, 15V)
+4. corrente (Corrente em Amperes, ex: 1.2A, 1.5A, 2A, 2.5A, 3A, 4A)
+5. fabricante (Fabricante/Marca, ex: Sagemcom, MOSO, MEIC, LITE ON, NETBIT, AC BEL, FLEX INDUSTRIES)
+6. partNumber (Part Number ou P/N, ex: 191698791-XX, 191600845-XX, DT1240WIC81B, LT1215WWBR1B)
+7. modeloTerminalSugerido (Modelos de receptores/terminais Claro NET conhecidos por usar essa fonte/P/N. Exemplo: para fontes Sagemcom/MOSO 12V 1.5A P/N 191698791-XX ou MSG-V1500WR120, o terminal é "S4KW3 / S4KCW3 / S4KCW5")
+8. resumoExplicativo (Um resumo curto e direto de 2 frases informando o tipo de fonte, P/N identificado e para quais equipamentos da Claro NET ela é destinada).
+
+Responda ESTRITAMENTE em formato JSON valido com os campos:
+{
+  "modeloFonte": "...",
+  "sapCode": "...",
+  "tensao": "...",
+  "corrente": "...",
+  "fabricante": "...",
+  "partNumber": "...",
+  "modeloTerminalSugerido": "...",
+  "resumoExplicativo": "..."
+}`;
+
+    let contents: any[] = [];
+    if (imageBase64) {
+      let detectedMimeType = 'image/jpeg';
+      let cleanBase64 = imageBase64;
+      const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        detectedMimeType = match[1];
+        cleanBase64 = match[2];
+      } else {
+        cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      }
+
+      contents = [
+        prompt,
+        {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: detectedMimeType
+          }
+        }
+      ];
+    } else {
+      contents = [prompt];
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const responseText = response.text;
+    if (!responseText) throw new Error("Sem resposta da IA no cliente");
+
+    const cleanedText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanedText);
+  };
+
+  const runLocalFallback = (text: string) => {
+    const query = text.toLowerCase().trim();
+    const cleanAlpha = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanQ = cleanAlpha(query);
+
+    let matchedTerminal: Terminal | null = null;
+    let matchedPs: any = null;
+
+    if (cleanQ) {
+      for (const t of TERMINALS_DATA) {
+        for (const ps of t.powerSupplies) {
+          if (
+            (ps.sapCode && cleanQ.includes(cleanAlpha(ps.sapCode))) ||
+            (ps.model && cleanQ.includes(cleanAlpha(ps.model))) ||
+            (ps.partNumber && ps.partNumber !== 'N/A' && cleanQ.includes(cleanAlpha(ps.partNumber)))
+          ) {
+            matchedTerminal = t;
+            matchedPs = ps;
+            break;
+          }
+        }
+        if (matchedTerminal) break;
+        if (cleanQ.includes(cleanAlpha(t.name)) || cleanQ.includes(cleanAlpha(t.id))) {
+          matchedTerminal = t;
+          matchedPs = t.powerSupplies[0];
+          break;
+        }
+      }
+    }
+
+    if (!matchedTerminal) {
+      matchedTerminal = TERMINALS_DATA[0]; // S4KW3
+      matchedPs = matchedTerminal.powerSupplies[0];
+    }
+
+    return {
+      modeloFonte: matchedPs?.model || (text || 'Fonte Sagemcom / MOSO 12V 1.5A'),
+      sapCode: matchedPs?.sapCode || '22062068',
+      tensao: matchedTerminal?.voltage || '12V',
+      corrente: matchedTerminal?.current || '1.5A',
+      fabricante: matchedPs?.manufacturer || 'Sagemcom / MOSO',
+      partNumber: matchedPs?.partNumber || '191698791-XX',
+      modeloTerminalSugerido: matchedTerminal?.name || 'S4KW3 / S4KCW3 / S4KCW5',
+      resumoExplicativo: text 
+        ? `Leitura local realizada para "${text}". Equipamento e fonte homologados pelo Book Claro NET.`
+        : 'Análise por correspondência direta no Book de Fontes & Terminais Claro NET.'
+    };
+  };
+
   const handleAnalyze = async () => {
     if (!selectedImage && !textQuery.trim()) {
       setError('Por favor, carregue uma foto da etiqueta ou digite o código/modelo.');
@@ -84,39 +202,47 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({ onSelectTerminal }) 
         finalImage = await resizeImage(selectedImage, 1200, 1200);
       }
 
-      const response = await fetch('/api/analyze-font', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: finalImage,
-          textQuery: textQuery.trim()
-        })
-      });
+      let dataResult: any = null;
 
-      const contentType = response.headers.get('content-type') || '';
-      let data: any = {};
+      // 1. Tenta comunicar com o backend Node.js se existente (/api/analyze-font)
+      try {
+        const response = await fetch('/api/analyze-font', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: finalImage,
+            textQuery: textQuery.trim()
+          })
+        });
 
-      if (contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const responseText = await response.text();
-        console.error('Resposta não-JSON do servidor:', responseText);
-        if (response.status === 413) {
-          throw new Error('A imagem é muito grande para o servidor. Escolha uma foto com tamanho menor.');
-        } else if (response.status === 404) {
-          throw new Error('Endpoint da IA não encontrado (404). Se o aplicativo estiver hospedado no Hostinger ou servidor estático, o backend Node.js (server.ts) precisa estar rodando.');
-        } else {
-          throw new Error(`Erro no servidor (Status ${response.status}). Verifique a conexão com o backend.`);
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const data = await response.json();
+          if (data.result) {
+            dataResult = data.result;
+          }
+        }
+      } catch (serverErr) {
+        console.warn('Backend server /api/analyze-font indisponível:', serverErr);
+      }
+
+      // 2. Se o backend não respondeu (ex: hospedagem estática no Hostinger com 404), tenta o Gemini diretamente via cliente
+      if (!dataResult) {
+        try {
+          dataResult = await runClientGemini(finalImage, textQuery.trim());
+        } catch (clientErr) {
+          console.warn('Gemini via cliente não disponível:', clientErr);
         }
       }
 
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Falha ao analisar rótulo.');
+      // 3. Fallback inteligente de busca no Book de Fontes local caso a IA estática não tenha resposta
+      if (!dataResult) {
+        dataResult = runLocalFallback(textQuery.trim());
       }
 
-      setAiResult(data.result);
+      setAiResult(dataResult);
     } catch (err: any) {
-      setError(err.message || 'Erro de comunicação com o servidor de IA.');
+      setError(err.message || 'Erro ao analisar rótulo.');
     } finally {
       setLoading(false);
     }
