@@ -194,16 +194,17 @@ export default function App() {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 border-t border-slate-800/60">
                 {/* Category Chips */}
                 {activeTab === 'terminal' && (
-                  <div className="flex items-center space-x-1.5 overflow-x-auto w-full pb-1 sm:pb-0 custom-scrollbar">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 w-full">
                     {categories.map((cat) => (
                       <button
                         key={cat.value}
                         onClick={() => setSelectedCategory(cat.value)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
+                        className={`w-full py-2 px-2.5 rounded-xl text-xs font-semibold text-center transition-all border truncate flex items-center justify-center ${
                           selectedCategory === cat.value
-                            ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-950/40'
+                            ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-950/40 font-bold'
                             : 'bg-slate-950 text-slate-400 hover:text-slate-200 border-slate-800 hover:bg-slate-800'
                         }`}
+                        title={cat.label}
                       >
                         {cat.label}
                       </button>
