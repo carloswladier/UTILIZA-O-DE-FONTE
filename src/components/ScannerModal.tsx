@@ -1,9 +1,10 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Camera, Upload, Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ArrowRight, Zap, Copy } from 'lucide-react';
+import { Camera, Upload, Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ArrowRight, Zap, Copy, Tag } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import { recognize } from 'tesseract.js';
 import { TERMINALS_DATA } from '../data/terminalsData';
 import { Terminal } from '../types';
+import { getPsuLabelInfo } from '../utils/psuLabels';
 
 interface ScannerModalProps {
   onSelectTerminal: (terminal: Terminal) => void;
@@ -494,17 +495,17 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
   }, [aiResult, matchedItems]);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl my-6">
+    <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs my-6 text-slate-900">
       <div className="flex items-center space-x-3 mb-4">
-        <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+        <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
           <Camera className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-xl font-black text-white flex items-center space-x-2">
+          <h2 className="text-xl font-black text-slate-900 flex items-center space-x-2">
             <span>Leitor Inteligente de Etiquetas de Fonte (IA)</span>
             <span className="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-bold uppercase">Gemini AI</span>
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Fotografe a etiqueta da fonte de alimentação ou digite o texto do rótulo para identificar o Código SAP e Terminais Compatíveis.
           </p>
         </div>
@@ -515,7 +516,7 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
         <div className="space-y-4">
           <div 
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-slate-700 hover:border-red-500/60 rounded-2xl p-6 text-center cursor-pointer bg-slate-950/60 hover:bg-slate-950 transition-all flex flex-col items-center justify-center min-h-[220px]"
+            className="border-2 border-dashed border-slate-300 hover:border-red-500 rounded-2xl p-6 text-center cursor-pointer bg-slate-50 hover:bg-slate-100/80 transition-all flex flex-col items-center justify-center min-h-[220px]"
           >
             <input 
               type="file" 
@@ -541,13 +542,13 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-300">
+                <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center mx-auto text-slate-600">
                   <Upload className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-slate-200">
+                <p className="text-sm font-bold text-slate-800">
                   Clique para tirar foto ou selecionar imagem
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500">
                   Fotografe a etiqueta contendo Tensão (ex: 12V 2A), Modelo ou Cód. SAP
                 </p>
               </div>
@@ -555,7 +556,7 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
               Ou digite os dados da etiqueta manualmente:
             </label>
             <input
@@ -563,13 +564,13 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
               value={textQuery}
               onChange={(e) => setTextQuery(e.target.value)}
               placeholder="Ex: ADP-50BR, 12V 4A, SAP 22056502, MU06-B050120..."
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
+              className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-red-500"
             />
           </div>
 
           {error && (
-            <div className="bg-red-950/60 border border-red-800 text-red-300 p-3 rounded-xl text-xs flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
               <span>{error}</span>
             </div>
           )}
@@ -579,8 +580,8 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
             disabled={loading || (!selectedImage && !textQuery.trim())}
             className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center space-x-2 transition-all ${
               loading || (!selectedImage && !textQuery.trim())
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30'
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                : 'bg-red-600 hover:bg-red-700 text-white shadow-sm'
             }`}
           >
             {loading ? (
@@ -600,59 +601,69 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
         {/* AI Results Column */}
         <div>
           {aiResult ? (
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center space-x-2 text-emerald-400 font-bold text-sm border-b border-slate-800 pb-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center space-x-2 text-emerald-700 font-bold text-sm border-b border-slate-200 pb-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <span>Análise de Etiqueta Concluída</span>
               </div>
 
               {/* Extracted Fields Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Modelo Identificado</span>
-                  <span className="font-bold text-white text-xs sm:text-sm truncate block" title={aiResult.modeloFonte || ''}>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Modelo Identificado</span>
+                  <span className="font-bold text-slate-900 text-xs sm:text-sm truncate block" title={aiResult.modeloFonte || ''}>
                     {aiResult.modeloFonte || 'Não detectado'}
                   </span>
                 </div>
 
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Part Number (P/N)</span>
-                  <span className="font-mono font-bold text-amber-300 text-xs sm:text-sm truncate block" title={aiResult.partNumber || ''}>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Part Number (P/N)</span>
+                  <span className="font-mono font-bold text-amber-700 text-xs sm:text-sm truncate block" title={aiResult.partNumber || ''}>
                     {aiResult.partNumber || 'Não impresso'}
                   </span>
                 </div>
 
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Código SAP</span>
-                  <span className="font-bold text-red-400 text-xs sm:text-sm truncate block">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Código SAP</span>
+                  <span className="font-bold text-red-600 text-xs sm:text-sm truncate block">
                     {resolvedSapCode}
                   </span>
                 </div>
 
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Tensão & Corrente</span>
-                  <span className="font-bold text-slate-200 text-xs sm:text-sm">
-                    {aiResult.tensao || 'N/D'} {aiResult.corrente ? `• ${aiResult.corrente}` : ''}
-                  </span>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Tensão & Corrente</span>
+                  <div className="flex items-center space-x-1.5 mt-0.5">
+                    <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                      {aiResult.tensao || 'N/D'} {aiResult.corrente ? `• ${aiResult.corrente}` : ''}
+                    </span>
+                    {aiResult.tensao && (
+                      <span 
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-black border ${getPsuLabelInfo(aiResult.tensao, aiResult.corrente || '').badgeBg} ${getPsuLabelInfo(aiResult.tensao, aiResult.corrente || '').badgeText}`}
+                        style={getPsuLabelInfo(aiResult.tensao, aiResult.corrente || '').customStyle}
+                      >
+                        {getPsuLabelInfo(aiResult.tensao, aiResult.corrente || '').displayTag}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Fabricante</span>
-                  <span className="font-bold text-slate-300 text-xs sm:text-sm truncate block">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Fabricante</span>
+                  <span className="font-bold text-slate-700 text-xs sm:text-sm truncate block">
                     {aiResult.fabricante || 'Não detectado'}
                   </span>
                 </div>
 
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Terminal Sugerido</span>
-                  <span className="font-bold text-emerald-400 text-xs truncate block" title={aiResult.modeloTerminalSugerido || ''}>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold">Terminal Sugerido</span>
+                  <span className="font-bold text-emerald-700 text-xs truncate block" title={aiResult.modeloTerminalSugerido || ''}>
                     {aiResult.modeloTerminalSugerido || 'Identificado no Book'}
                   </span>
                 </div>
               </div>
 
               {aiResult.resumoExplicativo && (
-                <p className="text-xs text-slate-300 bg-slate-900/80 p-3 rounded-xl border border-slate-800 leading-relaxed">
+                <p className="text-xs text-slate-700 bg-white p-3 rounded-xl border border-slate-200 leading-relaxed">
                   {aiResult.resumoExplicativo}
                 </p>
               )}
@@ -660,8 +671,8 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
               {/* Matched Terminals */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1">
-                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center space-x-1">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
                     <span>Terminais Compatíveis No Book ({matchedItems.length}):</span>
                   </span>
                 </div>
@@ -671,34 +682,34 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
                     {matchedItems.map(({ terminal, score, matchReasons, matchedPowerSupply }) => (
                       <div 
                         key={terminal.id}
-                        className="bg-slate-900 hover:bg-slate-850 p-3 rounded-xl border border-slate-800 hover:border-red-500/50 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        className="bg-white hover:bg-slate-100/60 p-3 rounded-xl border border-slate-200 hover:border-red-500 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                            <span className="font-bold text-sm text-white">{terminal.name}</span>
-                            <span className="text-[10px] bg-red-950 text-red-400 px-2 py-0.5 rounded font-bold border border-red-800/60">
+                            <span className="font-bold text-sm text-slate-900">{terminal.name}</span>
+                            <span className="text-[10px] bg-red-50 text-red-700 px-2 py-0.5 rounded font-bold border border-red-200">
                               {terminal.voltage} ({terminal.power})
                             </span>
                             {score >= 80 && (
-                              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold border border-emerald-500/30">
+                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">
                                 Match Perfeito
                               </span>
                             )}
                           </div>
                           
-                          <div className="text-xs text-slate-400 mt-1 space-y-0.5">
-                            <p className="text-[11px] text-slate-300 font-medium">
+                          <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+                            <p className="text-[11px] text-slate-700 font-medium">
                               {terminal.category}
                             </p>
                             {matchedPowerSupply && (
-                              <p className="text-[11px] text-amber-300/90 font-mono">
-                                Fonte Homologada: {matchedPowerSupply.model} | P/N: {matchedPowerSupply.partNumber} | SAP: <strong className="text-red-400 font-bold">{matchedPowerSupply.sapCode}</strong>
+                              <p className="text-[11px] text-slate-600 font-mono">
+                                Fonte Homologada: {matchedPowerSupply.model} | P/N: {matchedPowerSupply.partNumber} | SAP: <strong className="text-red-600 font-bold">{matchedPowerSupply.sapCode}</strong>
                               </p>
                             )}
                             {matchReasons.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {matchReasons.map((reason, idx) => (
-                                  <span key={idx} className="text-[9px] bg-slate-950 text-slate-400 px-1.5 py-0.5 rounded border border-slate-800">
+                                  <span key={idx} className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
                                     {reason}
                                   </span>
                                 ))}
@@ -709,7 +720,7 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
 
                         <button
                           onClick={() => onSelectTerminal(terminal)}
-                          className="px-3.5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-1.5 shrink-0 shadow-sm"
+                          className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-1.5 shrink-0 shadow-xs"
                         >
                           <span>Ver Ficha Técnica</span>
                           <ArrowRight className="w-3.5 h-3.5" />
@@ -718,16 +729,16 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 italic p-3 bg-slate-900/50 rounded-xl text-center">
-                    Nenhum terminal exato encontrado para estes parâmetros. Tente buscar pelo termo geral na aba "Por Fonte / SAP".
+                  <p className="text-xs text-slate-500 italic p-3 bg-white rounded-xl border border-slate-200 text-center">
+                    Nenhum terminal exato encontrado para estes parâmetros.
                   </p>
                 )}
               </div>
             </div>
           ) : (
-            <div className="bg-slate-950/40 rounded-2xl border border-slate-800/60 p-8 text-center h-full flex flex-col items-center justify-center text-slate-500">
-              <Zap className="w-10 h-10 text-slate-700 mb-2" />
-              <p className="text-sm font-semibold text-slate-400">
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center h-full flex flex-col items-center justify-center text-slate-500">
+              <Zap className="w-10 h-10 text-slate-400 mb-2" />
+              <p className="text-sm font-semibold text-slate-700">
                 Aguardando leitura do rótulo
               </p>
               <p className="text-xs text-slate-500 mt-1 max-w-xs">

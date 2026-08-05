@@ -11,7 +11,7 @@ import { Terminal, PowerSupply, TerminalCategory } from './types';
 import { Search, Filter, X, Bookmark, Zap, Cpu, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'terminal' | 'fonte' | 'scanner' | 'guide'>('terminal');
+  const [activeTab, setActiveTab] = useState<'terminal' | 'scanner'>('terminal');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedVoltage, setSelectedVoltage] = useState<string>('all');
@@ -142,7 +142,7 @@ export default function App() {
   }, [searchQuery, selectedVoltage]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-red-600 selection:text-white pb-16">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-red-600 selection:text-white pb-16">
       {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
@@ -162,28 +162,24 @@ export default function App() {
         {/* Quick Header Stats */}
         <QuickStatsHeader />
 
-        {/* Tab Content 1 & 2: Search Filters */}
-        {(activeTab === 'terminal' || activeTab === 'fonte') && (
+        {/* Tab Content 1: Search Filters (Por Terminal) */}
+        {activeTab === 'terminal' && (
           <div className="space-y-6">
             {/* Search Input & Filter Controls */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-4">
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
               <div className="relative">
                 <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={
-                    activeTab === 'terminal'
-                      ? 'Digite o modelo do terminal (ex: H196A, DCI106, S4KW3, Z4KW6, FAST3895, CG3000...)'
-                      : 'Digite a Fonte ou Código SAP (ex: 22026278, MU06-B050120, MEIC, LITE ON, MOSO...)'
-                  }
-                  className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl pl-12 pr-10 py-3 text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:border-red-500 transition-all shadow-inner"
+                  placeholder="Digite o modelo do terminal (ex: H196A, DCI106, S4KW3, Z4KW6, FAST3895, CG3000...)"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-12 pr-10 py-3 text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-red-500 transition-all"
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 rounded-full hover:bg-slate-200/60"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -191,37 +187,35 @@ export default function App() {
               </div>
 
               {/* Filter Pills */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 border-t border-slate-800/60">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 border-t border-slate-200/80">
                 {/* Category Chips */}
-                {activeTab === 'terminal' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 w-full">
-                    {categories.map((cat) => (
-                      <button
-                        key={cat.value}
-                        onClick={() => setSelectedCategory(cat.value)}
-                        className={`w-full py-2 px-2.5 rounded-xl text-xs font-semibold text-center transition-all border truncate flex items-center justify-center ${
-                          selectedCategory === cat.value
-                            ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-950/40 font-bold'
-                            : 'bg-slate-950 text-slate-400 hover:text-slate-200 border-slate-800 hover:bg-slate-800'
-                        }`}
-                        title={cat.label}
-                      >
-                        {cat.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 w-full">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.value}
+                      onClick={() => setSelectedCategory(cat.value)}
+                      className={`w-full py-2 px-2.5 rounded-xl text-xs font-semibold text-center transition-all border truncate flex items-center justify-center ${
+                        selectedCategory === cat.value
+                          ? 'bg-red-600 text-white border-red-600 shadow-xs font-bold'
+                          : 'bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-200 hover:bg-slate-200/70'
+                      }`}
+                      title={cat.label}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
 
                 {/* Voltage Selector */}
                 <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
-                  <span className="text-xs font-semibold text-slate-400 flex items-center space-x-1">
-                    <Filter className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-slate-500 flex items-center space-x-1">
+                    <Filter className="w-3.5 h-3.5 text-amber-500" />
                     <span>Tensão:</span>
                   </span>
                   <select
                     value={selectedVoltage}
                     onChange={(e) => setSelectedVoltage(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:border-red-500"
+                    className="bg-white border border-slate-300 text-slate-800 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:border-red-500"
                   >
                     {voltages.map((v) => (
                       <option key={v} value={v}>
@@ -234,24 +228,24 @@ export default function App() {
 
               {/* Active Filter Indicators */}
               {(showFavoritesOnly || selectedCategory !== 'all' || selectedVoltage !== 'all' || searchQuery) && (
-                <div className="flex items-center space-x-2 pt-2 text-xs text-slate-400 flex-wrap gap-y-1">
-                  <span className="font-semibold text-slate-300">Filtros ativos:</span>
+                <div className="flex items-center space-x-2 pt-2 text-xs text-slate-500 flex-wrap gap-y-1 border-t border-slate-100">
+                  <span className="font-semibold text-slate-700">Filtros ativos:</span>
                   {showFavoritesOnly && (
-                    <span className="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md border border-amber-500/30 flex items-center space-x-1">
+                    <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded-md border border-amber-200 flex items-center space-x-1">
                       <span>Salvos/Favoritos</span>
-                      <button onClick={() => setShowFavoritesOnly(false)} className="hover:text-white ml-1"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setShowFavoritesOnly(false)} className="hover:text-slate-900 ml-1"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {selectedCategory !== 'all' && (
-                    <span className="bg-red-950 text-red-300 px-2 py-0.5 rounded-md border border-red-800 flex items-center space-x-1">
+                    <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded-md border border-red-200 flex items-center space-x-1">
                       <span>Categoria: {selectedCategory}</span>
-                      <button onClick={() => setSelectedCategory('all')} className="hover:text-white ml-1"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setSelectedCategory('all')} className="hover:text-slate-900 ml-1"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {selectedVoltage !== 'all' && (
-                    <span className="bg-amber-950 text-amber-300 px-2 py-0.5 rounded-md border border-amber-800 flex items-center space-x-1">
+                    <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded-md border border-amber-200 flex items-center space-x-1">
                       <span>Tensão: {selectedVoltage}</span>
-                      <button onClick={() => setSelectedVoltage('all')} className="hover:text-white ml-1"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setSelectedVoltage('all')} className="hover:text-slate-900 ml-1"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   <button
@@ -261,7 +255,7 @@ export default function App() {
                       setSelectedVoltage('all');
                       setShowFavoritesOnly(false);
                     }}
-                    className="text-xs text-red-400 hover:text-red-300 underline font-semibold ml-auto"
+                    className="text-xs text-red-600 hover:text-red-700 underline font-semibold ml-auto"
                   >
                     Limpar Todos
                   </button>
@@ -269,88 +263,52 @@ export default function App() {
               )}
             </div>
 
-            {/* Results Grid - Tab 1: Terminal Mode */}
-            {activeTab === 'terminal' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-                    <Cpu className="w-4 h-4 text-red-400" />
-                    <span>Terminais Encontrados ({filteredTerminals.length})</span>
-                  </span>
-                </div>
-
-                {filteredTerminals.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredTerminals.map((terminal) => (
-                      <TerminalCard
-                        key={terminal.id}
-                        terminal={terminal}
-                        isFavorite={favorites.includes(terminal.id)}
-                        onToggleFavorite={handleToggleFavorite}
-                        onSelectTerminal={(t) => setSelectedTerminal(t)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-400 space-y-3">
-                    <Cpu className="w-12 h-12 text-slate-600 mx-auto" />
-                    <h3 className="text-lg font-bold text-slate-200">Nenhum terminal encontrado</h3>
-                    <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      Tente alterar os termos de busca ou limpar os filtros de categoria e tensão.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSelectedCategory('all');
-                        setSelectedVoltage('all');
-                        setShowFavoritesOnly(false);
-                      }}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-colors"
-                    >
-                      Ver Todos os Terminais
-                    </button>
-                  </div>
-                )}
+            {/* Results Grid - Terminal Mode */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center space-x-2">
+                  <Cpu className="w-4 h-4 text-red-600" />
+                  <span>Terminais Encontrados ({filteredTerminals.length})</span>
+                </span>
               </div>
-            )}
 
-            {/* Results Grid - Tab 2: Reverse Lookup (Power Supply / SAP Mode) */}
-            {activeTab === 'fonte' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-                    <Zap className="w-4 h-4 text-amber-400" />
-                    <span>Modelos de Fontes & Códigos SAP ({aggregatedPowerSupplies.length})</span>
-                  </span>
+              {filteredTerminals.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredTerminals.map((terminal) => (
+                    <TerminalCard
+                      key={terminal.id}
+                      terminal={terminal}
+                      isFavorite={favorites.includes(terminal.id)}
+                      onToggleFavorite={handleToggleFavorite}
+                      onSelectTerminal={(t) => setSelectedTerminal(t)}
+                    />
+                  ))}
                 </div>
-
-                {aggregatedPowerSupplies.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {aggregatedPowerSupplies.map((ps, idx) => (
-                      <PowerSupplyCard
-                        key={`${ps.id}-${idx}`}
-                        powerSupply={ps}
-                        onSelectTerminal={(t) => {
-                          setSelectedTerminal(t);
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-400 space-y-3">
-                    <Zap className="w-12 h-12 text-slate-600 mx-auto" />
-                    <h3 className="text-lg font-bold text-slate-200">Nenhuma fonte encontrada</h3>
-                    <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      Tente buscar por fabricantes como MEIC, LITE ON, NETBIT, AC BEL, MOSO ou insira o código SAP de 8 dígitos.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-500 space-y-3">
+                  <Cpu className="w-12 h-12 text-slate-400 mx-auto" />
+                  <h3 className="text-lg font-bold text-slate-800">Nenhum terminal encontrado</h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Tente alterar os termos de busca ou limpar os filtros de categoria e tensão.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSelectedCategory('all');
+                      setSelectedVoltage('all');
+                      setShowFavoritesOnly(false);
+                    }}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-colors"
+                  >
+                    Ver Todos os Terminais
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Tab Content 3: Scanner IA */}
+        {/* Tab Content 2: Scanner IA (Foto) */}
         {activeTab === 'scanner' && (
           <ScannerModal
             onSelectTerminal={(t) => {
@@ -358,9 +316,6 @@ export default function App() {
             }}
           />
         )}
-
-        {/* Tab Content 4: Technical Guide */}
-        {activeTab === 'guide' && <TechnicalGuideTab />}
       </main>
 
       {/* Terminal Detail Modal */}
