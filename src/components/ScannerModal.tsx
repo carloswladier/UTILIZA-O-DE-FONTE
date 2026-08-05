@@ -71,23 +71,133 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({ onSelectTerminal }) 
     reader.readAsDataURL(file);
   };
 
+  const enrichWithBookData = (data: any) => {
+    if (!data) return data;
+
+    const rawPn = (data.partNumber || '').trim();
+    const rawModel = (data.modeloFonte || '').trim();
+    const rawSap = (data.sapCode || '').trim();
+    const rawVolt = (data.tensao || '').trim();
+    const rawCurr = (data.corrente || '').trim();
+    const rawMfg = (data.fabricante || '').trim();
+
+    const cleanAlpha = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const pnClean = cleanAlpha(rawPn);
+    const modelClean = cleanAlpha(rawModel);
+    const sapClean = cleanAlpha(rawSap);
+
+    let bestMatch: { terminal: Terminal; ps: any; score: number } | null = null;
+    let maxScore = 0;
+
+    for (const t of TERMINALS_DATA) {
+      for (const ps of t.powerSupplies) {
+        let score = 0;
+
+        // 1. SAP Match
+        if (sapClean && sapClean.length >= 6 && ps.sapCode && cleanAlpha(ps.sapCode).includes(sapClean)) {
+          score += 350;
+        }
+
+        // 2. Part Number Match
+        if (ps.partNumber && ps.partNumber !== 'N/A') {
+          const psPnClean = cleanAlpha(ps.partNumber);
+          const corePn = ps.partNumber.match(/\d{7,10}/);
+          if (pnClean && psPnClean && (psPnClean.includes(pnClean) || pnClean.includes(psPnClean))) {
+            score += 300;
+          } else if (corePn && pnClean.includes(corePn[0])) {
+            score += 250;
+          }
+        }
+
+        // 3. Model Match
+        if (ps.model && modelClean && modelClean.length >= 4) {
+          const psModelClean = cleanAlpha(ps.model);
+          if (psModelClean.includes(modelClean) || modelClean.includes(psModelClean)) {
+            score += 200;
+          } else {
+            const parts = ps.model.split(/[\s-]/);
+            for (const p of parts) {
+              const pClean = cleanAlpha(p);
+              if (pClean.length >= 5 && modelClean.includes(pClean)) {
+                score += 100;
+                break;
+              }
+            }
+          }
+        }
+
+        // 4. Electrical Match
+        const tV = t.voltage.replace(/[^\d]/g, '');
+        const tC = t.current.replace(',', '.').replace(/[^\d.]/g, '');
+        const dV = rawVolt.replace(/[^\d]/g, '');
+        const dC = rawCurr.replace(',', '.').replace(/[^\d.]/g, '');
+
+        if (tV && dV && tV === dV) {
+          if (tC && dC && Math.abs(parseFloat(tC) - parseFloat(dC)) < 0.2) {
+            score += 150;
+          } else if (dC && tC) {
+            score -= 250; // Penalty for wrong current
+          }
+        } else if (tV && dV) {
+          score -= 500; // Penalty for wrong voltage
+        }
+
+        // 5. Manufacturer Match
+        if (ps.manufacturer && rawMfg) {
+          const m1 = cleanAlpha(ps.manufacturer);
+          const m2 = cleanAlpha(rawMfg);
+          if (m1.includes(m2) || m2.includes(m1)) {
+            score += 50;
+          }
+        }
+
+        if (score > maxScore) {
+          maxScore = score;
+          bestMatch = { terminal: t, ps, score };
+        }
+      }
+    }
+
+    if (bestMatch && maxScore >= 100) {
+      const { terminal, ps } = bestMatch;
+      return {
+        ...data,
+        modeloFonte: ps.model || data.modeloFonte,
+        sapCode: ps.sapCode || data.sapCode,
+        tensao: terminal.voltage,
+        corrente: terminal.current,
+        fabricante: ps.manufacturer || data.fabricante,
+        partNumber: ps.partNumber !== 'N/A' ? ps.partNumber : data.partNumber,
+        modeloTerminalSugerido: terminal.name,
+        resumoExplicativo: `Fonte ${ps.model} (P/N: ${ps.partNumber}, SAP: ${ps.sapCode}) homologada no Book da Claro para o equipamento ${terminal.name} (${terminal.voltage} ${terminal.current}).`
+      };
+    }
+
+    return data;
+  };
+
   const runClientGemini = async (imageBase64: string | null, text: string) => {
     const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
     if (!apiKey) throw new Error('Sem chave VITE_GEMINI_API_KEY no cliente');
 
     const ai = new GoogleGenAI({ apiKey });
-    const prompt = `Você é um especialista técnico sênior de equipamentos e infraestrutura Claro NET (Book de Fontes & Terminais).
-Sua tarefa é analisar ${imageBase64 ? 'a foto do rótulo/etiqueta da fonte de alimentação ou do terminal' : 'o texto informado pelo usuário: ' + text} e extrair com máxima precisão os seguintes dados:
-1. modeloFonte (Modelo impresso na fonte ou no terminal, ex: MSG-V1500WR120-018I1-BR, MU06-B050120-D1, ADP-50BR, H196A, DCI106, S4KW3, etc.)
-2. sapCode (Código SAP de 8 dígitos se houver na etiqueta, ex: 22026278, 22062068, 22062575, etc.)
-3. tensao (Tensão em Volts, ex: 5V, 9V, 12V, 14V, 15V)
-4. corrente (Corrente em Amperes, ex: 1.2A, 1.5A, 2A, 2.5A, 3A, 4A)
-5. fabricante (Fabricante/Marca, ex: Sagemcom, MOSO, MEIC, LITE ON, NETBIT, AC BEL, FLEX INDUSTRIES)
-6. partNumber (Part Number ou P/N, ex: 191698791-XX, 191600845-XX, DT1240WIC81B, LT1215WWBR1B)
-7. modeloTerminalSugerido (Modelos de receptores/terminais Claro NET conhecidos por usar essa fonte/P/N. Exemplo: para fontes Sagemcom/MOSO 12V 1.5A P/N 191698791-XX ou MSG-V1500WR120, o terminal é "S4KW3 / S4KCW3 / S4KCW5")
-8. resumoExplicativo (Um resumo curto e direto de 2 frases informando o tipo de fonte, P/N identificado e para quais equipamentos da Claro NET ela é destinada).
+    const prompt = `Você é um especialista em análise de etiquetas de fontes de alimentação de equipamentos da Claro (Book de Fontes & Terminais).
+Examine a foto da etiqueta fornecida com extrema precisão visual e extraia os seguintes dados:
 
-Responda ESTRITAMENTE em formato JSON valido com os campos:
+ORIENTAÇÕES DE LEITURA DA ETIQUETA:
+1. FABRICANTE / MARCA: Identifique a marca no topo ou corpo da etiqueta (ex: Sagemcom, MOSO, MEIC, LITE ON, NETBIT, AC BEL, FLEX, SHENZHEN HONOR, FRECOM, TELLESCOM).
+2. MODELO DA FONTE: Identifique o código do modelo exato (ex: MSG-H3-AGWR120-042A0-BR, MSG-H3500WR120-042A0-BR, MSG-V1500WR120-018I1-BR, ADS-42FKJ-12, NBS42E120350VB, MU06-B050120, etc.).
+3. P/N (PART NUMBER): Localize a linha "P/N:", "P/N" ou o código alfanumérico no formato XXXXXXXXX-XX (ex: 191591509-XX, 191591517-XX, 191698791-XX, 01570610300R).
+4. SAÍDA (TENSÃO & CORRENTE):
+   - Veja as especificações de saída ("SAÍDA: 12.0V === 3.5A" ou a etiqueta colorida inferior ex: "12VDC 3.5A").
+   - tensao: ex "12V", "20V", "5V", "9V"
+   - corrente: ex "3.5A", "1.5A", "2A", "2.5A", "4A"
+5. CÓDIGO SAP: Se houver código SAP de 8 dígitos impresso na etiqueta (ex: 22060652, 22063233), extraia-o. Se não houver, informe o SAP conhecido para este P/N.
+6. TERMINAL SUGERIDO & RESUMO:
+   - Identifique o equipamento/terminal Claro compatível (ex: para fonte Sagemcom/MOSO 12V 3.5A P/N 191591509-XX ou MSG-H3, os terminais são "FAST3895 / FAST3896" ou "CH8568" / "HI3120" / "WIFI7 MESH 380BA").
+   - Escreva um resumo explicativo claro e direto de 2 frases.
+
+Responda ESTRITAMENTE em formato JSON com os campos:
 {
   "modeloFonte": "...",
   "sapCode": "...",
@@ -125,7 +235,7 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents,
       config: {
         responseMimeType: "application/json"
@@ -136,7 +246,8 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
     if (!responseText) throw new Error("Sem resposta da IA no cliente");
 
     const cleanedText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanedText);
+    const rawParsed = JSON.parse(cleanedText);
+    return enrichWithBookData(rawParsed);
   };
 
   const runClientOcrAndMatch = async (imageBase64: string | null, text: string) => {
@@ -150,9 +261,19 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
       }
     }
 
-    const combinedText = (ocrText + ' ' + text).trim();
+    const rawCombined = (ocrText + ' ' + text).trim();
+    // Normalize text to fix OCR glitches
+    const normalizedText = rawCombined
+      .replace(/Sagercom/gi, 'Sagemcom')
+      .replace(/1915915O9/gi, '191591509')
+      .replace(/191581509/gi, '191591509')
+      .replace(/MSG-H3500WR120/gi, 'MSG-H3-AGWR120-042A0-BR')
+      .replace(/12VDC/gi, '12V')
+      .replace(/12\.0V/gi, '12V')
+      .replace(/3,5A/gi, '3.5A');
+
     const cleanAlpha = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanQ = cleanAlpha(combinedText);
+    const cleanQ = cleanAlpha(normalizedText);
 
     if (!cleanQ) {
       return {
@@ -167,6 +288,26 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
       };
     }
 
+    // Extract key parameters via regex from normalized OCR text
+    const detectedPnMatch = normalizedText.match(/\b(191\d{6}(?:-[A-Z0-9]+)?)\b/i) || normalizedText.match(/(?:P\/N|PN|PART\s*NUMBER)[:\s]*([A-Z0-9-]+)/i);
+    const detectedModelMatch = normalizedText.match(/\b(MSG-[A-Z0-9-]+|ADS-[A-Z0-9-]+|NBS[A-Z0-9-]+|F42L1-[A-Z0-9-]+|MU[0-9]+-[A-Z0-9-]+)\b/i) || normalizedText.match(/(?:MODELO|MOD)[:\s]*([A-Z0-9-]+)/i);
+    const detectedMfgMatch = normalizedText.match(/\b(SAGEMCOM|MOSO|NETBIT|FRECOM|FLEX|SHENZHEN\s*HONOR|TELLESCOM|LITE\s*ON|AC\s*BEL|I\.T\.E|LEADER|DELTA)\b/i);
+    const detectedSapMatch = normalizedText.match(/\b(220\d{5})\b/);
+
+    // Extract DC Output specs: check for 3.5A, 2.5A, 1.5A, 2A, 4A, 1A
+    let detectedCurrent = 'N/A';
+    if (/\b3[\.,]5\s*A\b/i.test(normalizedText)) detectedCurrent = '3,5A';
+    else if (/\b2[\.,]5\s*A\b/i.test(normalizedText)) detectedCurrent = '2,5A';
+    else if (/\b1[\.,]5\s*A\b/i.test(normalizedText)) detectedCurrent = '1,5A';
+    else if (/\b4[\.,]0?\s*A\b/i.test(normalizedText)) detectedCurrent = '4A';
+    else if (/\b2[\.,]0?\s*A\b/i.test(normalizedText)) detectedCurrent = '2A';
+    else if (/\b1[\.,]0?\s*A\b/i.test(normalizedText) && !/\b1[\.,][25]\s*A\b/i.test(normalizedText)) detectedCurrent = '1A';
+
+    let detectedVoltage = '12V';
+    if (/\b20\s*V\b/i.test(normalizedText)) detectedVoltage = '20V';
+    else if (/\b5\s*V\b/i.test(normalizedText)) detectedVoltage = '5V';
+    else if (/\b9\s*V\b/i.test(normalizedText)) detectedVoltage = '9V';
+
     let bestMatch: { terminal: Terminal; ps: any; score: number } | null = null;
     let maxScore = 0;
 
@@ -174,57 +315,68 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
       for (const ps of t.powerSupplies) {
         let score = 0;
 
-        // 1. SAP Code match (110 pts)
-        if (ps.sapCode && ps.sapCode.length >= 6 && cleanQ.includes(ps.sapCode)) {
-          score += 110;
+        // 1. SAP Match (Highest Weight)
+        if (detectedSapMatch && ps.sapCode === detectedSapMatch[1]) {
+          score += 350;
+        } else if (ps.sapCode && ps.sapCode.length >= 6 && cleanQ.includes(ps.sapCode)) {
+          score += 300;
         }
 
-        // 2. Part Number match (100 pts)
+        // 2. Part Number Match
         if (ps.partNumber && ps.partNumber !== 'N/A') {
           const psPnClean = cleanAlpha(ps.partNumber);
-          const corePnMatch = ps.partNumber.match(/\d{7,10}/);
-          if (psPnClean.length >= 5 && cleanQ.includes(psPnClean)) {
-            score += 100;
-          } else if (corePnMatch && cleanQ.includes(corePnMatch[0])) {
-            score += 95;
+          const corePn = ps.partNumber.match(/\d{7,10}/);
+          if (detectedPnMatch && cleanAlpha(detectedPnMatch[1]).includes(corePn ? corePn[0] : '')) {
+            score += 300;
+          } else if (psPnClean.length >= 5 && cleanQ.includes(psPnClean)) {
+            score += 250;
+          } else if (corePn && cleanQ.includes(corePn[0])) {
+            score += 200;
           }
         }
 
-        // 3. Model match (85 pts)
+        // 3. Model Match
         if (ps.model) {
           const modelClean = cleanAlpha(ps.model);
-          if (modelClean.length >= 5 && cleanQ.includes(modelClean)) {
-            score += 85;
+          if (detectedModelMatch && cleanAlpha(detectedModelMatch[1]).includes(modelClean.slice(0, 8))) {
+            score += 250;
+          } else if (modelClean.length >= 5 && cleanQ.includes(modelClean)) {
+            score += 200;
           } else {
             const parts = ps.model.split(/[\s-]/);
             for (const p of parts) {
               const pClean = cleanAlpha(p);
-              if (pClean.length >= 6 && cleanQ.includes(pClean)) {
-                score += 50;
+              if (pClean.length >= 5 && cleanQ.includes(pClean)) {
+                score += 100;
                 break;
               }
             }
           }
         }
 
-        // 4. Voltage + Current match (40 pts)
-        const vClean = t.voltage.replace(/[^\d]/g, '');
-        const cClean = t.current.replace(',', '.').replace(/[^\d.]/g, '');
+        // 4. Electrical Spec Match
+        const tV = t.voltage.replace(/[^\d]/g, '');
+        const dV = detectedVoltage.replace(/[^\d]/g, '');
+        const tC = t.current.replace(',', '.').replace(/[^\d.]/g, '');
+        const dC = detectedCurrent.replace(',', '.').replace(/[^\d.]/g, '');
 
-        const hasVoltage = combinedText.match(new RegExp(`\\b${vClean}\\.?0?\\s*v`, 'i'));
-        const hasCurrent = combinedText.match(new RegExp(`\\b${cClean.replace('.', '\\.')}\\s*a`, 'i'));
-
-        if (hasVoltage && hasCurrent) {
-          score += 40;
+        if (tV === dV) {
+          if (detectedCurrent !== 'N/A' && tC === dC) {
+            score += 150;
+          } else if (detectedCurrent !== 'N/A' && tC !== dC) {
+            score -= 300; // Strict penalty for wrong current!
+          }
+        } else {
+          score -= 500; // Penalty for wrong voltage!
         }
 
-        // 5. Manufacturer match (20 pts)
+        // 5. Manufacturer Match
         if (ps.manufacturer) {
           const mfgParts = ps.manufacturer.split(/[\s/]/);
           for (const m of mfgParts) {
             const mClean = cleanAlpha(m);
             if (mClean.length >= 4 && cleanQ.includes(mClean)) {
-              score += 20;
+              score += 50;
               break;
             }
           }
@@ -237,35 +389,34 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
       }
     }
 
-    // Extract raw regex fields from OCR text for fallback DISPLAY
-    const detectedVoltageMatch = combinedText.match(/(\d{1,2}(?:\.\d)?)\s*V(?:DC)?/i);
-    const detectedCurrentMatch = combinedText.match(/(\d{1,2}(?:\.\d)?)\s*A\b/i);
-    const detectedPnMatch = combinedText.match(/(?:P\/N|PN|PART\s*NUMBER)[:\s]*([A-Z0-9-]+)/i) || combinedText.match(/\b(\d{9}(?:-[A-Z0-9]+)?)\b/);
-    const detectedModelMatch = combinedText.match(/(?:MODELO|MODEL|MOD)[:\s]*([A-Z0-9-]+)/i);
-    const detectedMfgMatch = combinedText.match(/\b(SAGEMCOM|MOSO|NETBIT|FLEX|LITE\s*ON|AC\s*BEL|HUNTKEY|LEADER|DELTA)\b/i);
-
-    if (bestMatch && maxScore >= 35) {
+    if (bestMatch && maxScore >= 60) {
       const { terminal, ps } = bestMatch;
       return {
-        modeloFonte: ps.model || 'Fonte Homologada Claro NET',
+        modeloFonte: ps.model || 'Fonte Homologada Claro',
         sapCode: ps.sapCode || 'N/A',
         tensao: terminal.voltage,
         corrente: terminal.current,
         fabricante: ps.manufacturer || (detectedMfgMatch ? detectedMfgMatch[1].toUpperCase() : 'Fabricante Homologado'),
         partNumber: ps.partNumber !== 'N/A' ? ps.partNumber : (detectedPnMatch ? detectedPnMatch[1] : 'N/A'),
         modeloTerminalSugerido: terminal.name,
-        resumoExplicativo: `Reconhecido da imagem: Fonte ${ps.model} (P/N: ${ps.partNumber}, SAP: ${ps.sapCode}) homologada para o equipamento ${terminal.name} (${terminal.voltage} ${terminal.current}).`
+        resumoExplicativo: `Reconhecido da imagem: Fonte ${ps.model} (P/N: ${ps.partNumber}, SAP: ${ps.sapCode}) homologada para os equipamentos ${terminal.name} (${terminal.voltage} ${terminal.current}).`
       };
     } else {
+      // Find terminal matching detected voltage and current
+      const matchingTerminal = TERMINALS_DATA.find(t => 
+        t.voltage.replace(/[^\d]/g, '') === detectedVoltage.replace(/[^\d]/g, '') &&
+        (detectedCurrent === 'N/A' || t.current.replace(',', '.').replace(/[^\d.]/g, '') === detectedCurrent.replace(',', '.').replace(/[^\d.]/g, ''))
+      );
+
       return {
         modeloFonte: detectedModelMatch ? detectedModelMatch[1] : 'Modelo não cadastrado no Book',
-        sapCode: 'Verificar etiqueta',
-        tensao: detectedVoltageMatch ? `${detectedVoltageMatch[1]}V` : 'N/A',
-        corrente: detectedCurrentMatch ? `${detectedCurrentMatch[1]}A` : 'N/A',
+        sapCode: detectedSapMatch ? detectedSapMatch[1] : 'Verificar etiqueta',
+        tensao: detectedVoltage,
+        corrente: detectedCurrent,
         fabricante: detectedMfgMatch ? detectedMfgMatch[1].toUpperCase() : 'Não identificado',
         partNumber: detectedPnMatch ? detectedPnMatch[1] : 'N/A',
-        modeloTerminalSugerido: 'Não encontrado no Book',
-        resumoExplicativo: `Leitura local via OCR concluída. Tensão lida: ${detectedVoltageMatch ? detectedVoltageMatch[1]+'V' : '?'}, Corrente: ${detectedCurrentMatch ? detectedCurrentMatch[1]+'A' : '?'}, P/N: ${detectedPnMatch ? detectedPnMatch[1] : '?'}. Digite o P/N no campo se necessário.`
+        modeloTerminalSugerido: matchingTerminal ? matchingTerminal.name : 'Não encontrado no Book',
+        resumoExplicativo: `Leitura local via OCR concluída. Tensão: ${detectedVoltage}, Corrente: ${detectedCurrent}, P/N: ${detectedPnMatch ? detectedPnMatch[1] : '?'}. Equipamento sugerido: ${matchingTerminal ? matchingTerminal.name : 'Verifique no Book'}.`
       };
     }
   };
@@ -303,14 +454,14 @@ Responda ESTRITAMENTE em formato JSON valido com os campos:
         if (response.ok && contentType.includes('application/json')) {
           const data = await response.json();
           if (data.result && (data.result.modeloFonte || data.result.partNumber || data.result.sapCode)) {
-            dataResult = data.result;
+            dataResult = enrichWithBookData(data.result);
           }
         }
       } catch (serverErr) {
         console.warn('Backend server /api/analyze-font indisponível:', serverErr);
       }
 
-      // 2. Se o backend não respondeu (ex: hospedagem estática no Hostinger com 404), tenta o Gemini diretamente via cliente
+      // 2. Se o backend não respondeu (ex: hospedagem estática com 404), tenta o Gemini diretamente via cliente
       if (!dataResult) {
         try {
           dataResult = await runClientGemini(finalImage, textQuery.trim());

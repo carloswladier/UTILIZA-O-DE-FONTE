@@ -900,11 +900,11 @@ export const TERMINALS_DATA: Terminal[] = [
     power: '42W',
     connector: '5.5mm x 2.5mm',
     powerSupplies: [
-      { id: 'ps-173', model: 'MSG-H3500WR120-042A0-BR', partNumber: '191591509-XX', manufacturer: 'MOSO', sapCode: '22060652' },
+      { id: 'ps-173', model: 'MSG-H3-AGWR120-042A0-BR / MSG-H3500WR120-042A0-BR', partNumber: '191591509-XX', manufacturer: 'MOSO', sapCode: '22060652' },
       { id: 'ps-174', model: 'ADS-42FKJ-12 12042EPBR', partNumber: '191591517-XX', manufacturer: 'SHENZHEN HONOR', sapCode: '22060653' },
       { id: 'ps-175', model: 'NBS42E120350VB', partNumber: '191590982-XX', manufacturer: 'NETBIT', sapCode: '22060654' },
-      { id: 'ps-176', model: 'MSG-H3500WR120-042A0-BR', partNumber: 'N/A', manufacturer: 'FLEX INDUSTRIES', sapCode: '22062579' },
-      { id: 'ps-177', model: 'MSG-H3500WR120-042A0-BR', partNumber: 'N/A', manufacturer: 'SAGEMCOM', sapCode: '22063233' }
+      { id: 'ps-176', model: 'MSG-H3-AGWR120-042A0-BR', partNumber: '191591509-XX', manufacturer: 'FLEX INDUSTRIES', sapCode: '22062579' },
+      { id: 'ps-177', model: 'MSG-H3-AGWR120-042A0-BR', partNumber: '191591509-XX', manufacturer: 'SAGEMCOM', sapCode: '22063233' }
     ]
   },
   {
