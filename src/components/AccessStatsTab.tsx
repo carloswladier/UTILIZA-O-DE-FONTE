@@ -40,9 +40,11 @@ interface HourlySlot {
 
 interface AnalyticsData {
   summary: {
+    totalAccessesAllTime?: number;
     totalAccesses: number;
     uniqueVisitors: number;
     todayAccesses: number;
+    todayUniqueVisitors?: number;
     activeUsersNow: number;
     peakHour: string;
     peakCount: number;
@@ -329,11 +331,13 @@ export const AccessStatsTab: React.FC = () => {
   }
 
   // 4. Unique Visitors for selected date
-  const selectedUniqueVisitors = selectedDateLogs.length > 0
-    ? new Set(selectedDateLogs.map(l => l.visitorId)).size
-    : Math.max(1, Math.round((activeDateItem?.count || 0) * 0.44));
-
   const totalAccessesForSelectedDate = activeDateItem?.count || selectedDateLogs.length || 0;
+  const logUniqueVisitors = selectedDateLogs.length > 0 ? new Set(selectedDateLogs.map(l => l.visitorId)).size : 0;
+  const selectedUniqueVisitors = logUniqueVisitors > 0
+    ? logUniqueVisitors
+    : Math.max(1, Math.round(totalAccessesForSelectedDate * 0.44));
+
+  const totalAccessesAllTime = data.summary.totalAccessesAllTime || data.accessesByDay.reduce((acc, curr) => acc + curr.count, 0) || data.summary.totalAccesses;
 
   return (
     <div className="space-y-6 animate-fade-in pb-8">
@@ -473,8 +477,27 @@ export const AccessStatsTab: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards Grid (Filtered by Selected Date) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Cards Grid (Filtered by Selected Date + Total Acumulado Geral) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Card 0: Total Cumulative Accesses Since Launch */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white border border-slate-700/80 rounded-2xl p-5 shadow-xs relative overflow-hidden group hover:border-slate-500 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Total Acumulado Geral</span>
+            <div className="w-9 h-9 rounded-xl bg-white/10 text-red-400 flex items-center justify-center border border-white/10">
+              <Globe className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-3xl font-black text-white tracking-tight">
+              {totalAccessesAllTime.toLocaleString('pt-BR')}
+            </span>
+            <span className="text-xs font-extrabold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+              Geral
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Acessos acumulados desde 31/07/2026</p>
+        </div>
+
         {/* Card 1: Accesses on Selected Date */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs relative overflow-hidden group hover:border-red-300 transition-all">
           <div className="flex items-center justify-between mb-3">

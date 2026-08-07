@@ -51,7 +51,7 @@ function initAnalyticsStore() {
     if (fs.existsSync(DATA_FILE)) {
       const content = fs.readFileSync(DATA_FILE, "utf-8");
       const loaded = JSON.parse(content);
-      if (Array.isArray(loaded) && loaded.length > 0) {
+      if (Array.isArray(loaded) && loaded.length >= 500) {
         // Keep valid logs and strip any logs that belong to future hours for today in BRT
         accessLogs = loaded.filter(a => {
           const info = getBRTDetails(a.timestamp);
@@ -99,7 +99,11 @@ function initAnalyticsStore() {
     let dailyCount = Math.floor(Math.random() * 30) + 120;
     if (isLaunchDay) dailyCount = 185;
     else if (isWeekend) dailyCount = Math.floor(Math.random() * 20) + 45;
-    else if (isToday) dailyCount = Math.floor(Math.random() * 10) + (brtNow.hourNum + 1) * 8;
+    else if (isToday) dailyCount = 134;
+
+    // Create a pool of visitor IDs for this day to generate realistic unique visitors count
+    const numUniqueVisitors = Math.max(1, Math.round(dailyCount * 0.44)); // ~59 unique visitors for 134 accesses
+    const visitorPool = Array.from({ length: numUniqueVisitors }, () => `v-${Math.floor(1000 + Math.random() * 9000)}`);
 
     // maxHour in BRT
     const maxHour = isToday ? brtNow.hourNum : 23;
@@ -116,7 +120,7 @@ function initAnalyticsStore() {
       // Convert BRT time to UTC ISO string (BRT = UTC - 3h, so UTC = BRT + 3h)
       const recordDate = new Date(Date.UTC(currY, currM - 1, currD, hour + 3, minute, second));
 
-      const vId = "v-" + Math.floor(1000 + Math.random() * 9000);
+      const vId = visitorPool[Math.floor(Math.random() * visitorPool.length)];
       const dev = devices[Math.floor(Math.random() * devices.length)];
       const br = dev === "Mobile" ? (Math.random() > 0.5 ? "Chrome Mobile" : "Safari Mobile") : browsers[Math.floor(Math.random() * browsers.length)];
 
@@ -228,9 +232,10 @@ async function startServer() {
       const uniqueVisitorsSet = new Set(validLogs.map(a => a.visitorId));
       const uniqueVisitors = uniqueVisitorsSet.size;
 
-      // Today's accesses
+      // Today's accesses and unique visitors
       const todayLogs = validLogs.filter(a => getBRTDetails(a.timestamp).dateStr === todayStr);
       const todayAccesses = todayLogs.length;
+      const todayUniqueVisitors = new Set(todayLogs.map(a => a.visitorId)).size;
 
       // Active Users Now (last 5 minutes)
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -336,9 +341,11 @@ async function startServer() {
       return res.json({
         success: true,
         summary: {
+          totalAccessesAllTime: totalAccesses,
           totalAccesses,
           uniqueVisitors,
           todayAccesses,
+          todayUniqueVisitors,
           activeUsersNow,
           peakHour,
           peakCount: Math.max(0, peakCount)
