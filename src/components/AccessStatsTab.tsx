@@ -60,7 +60,7 @@ interface AnalyticsData {
 export const AccessStatsTab: React.FC = () => {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simMessage, setSimMessage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -83,16 +83,16 @@ export const AccessStatsTab: React.FC = () => {
         return {
           dateStr: d.toISOString().split('T')[0],
           dayLabel: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-          count: i === 0 ? 185 : Math.floor(Math.random() * 50) + 110
+          count: i === 0 ? 185 : 120 + (i * 12) % 35
         };
       });
 
       const fallbackHourlyMap: Record<string, HourlySlot[]> = {};
-      fallbackDays.forEach(day => {
+      fallbackDays.forEach((day, idx) => {
         fallbackHourlyMap[day.dateStr] = Array.from({ length: 24 }, (_, h) => ({
           hour: `${h.toString().padStart(2, '0')}:00`,
           hourNum: h,
-          count: h >= 8 && h <= 18 ? Math.floor(Math.random() * 15) + 8 : Math.floor(Math.random() * 3) + 1
+          count: h >= 8 && h <= 18 ? 8 + ((h + idx) % 10) : (h % 3 === 0 ? 2 : 0)
         }));
       });
 
@@ -102,8 +102,8 @@ export const AccessStatsTab: React.FC = () => {
           uniqueVisitors: Math.floor(storedCount * 0.38),
           todayAccesses: Math.floor(storedCount * 0.12),
           activeUsersNow: 6,
-          peakHour: '14:00',
-          peakCount: 28
+          peakHour: '10:00',
+          peakCount: 18
         },
         accessesByDay: fallbackDays,
         accessesByHour: fallbackHourlyMap[fallbackDays[fallbackDays.length - 1].dateStr],

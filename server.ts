@@ -30,7 +30,7 @@ function getBRTDetails(dateInput?: string | number | Date) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false
+    hourCycle: "h23"
   });
   
   const parts = formatter.formatToParts(d);
@@ -44,7 +44,7 @@ function getBRTDetails(dateInput?: string | number | Date) {
     if (p.type === "second") secStr = p.value;
   }
   let hourNum = parseInt(hourStr, 10);
-  if (hourNum === 24) hourNum = 0;
+  if (isNaN(hourNum) || hourNum >= 24) hourNum = 0;
 
   const dateStr = `${year}-${month}-${day}`; // YYYY-MM-DD
   const dayLabel = `${day}/${month}`;       // DD/MM
@@ -105,10 +105,10 @@ function initAnalyticsStore() {
     const dayOfWeek = new Date(Date.UTC(currY, currM - 1, currD, 12, 0, 0)).getUTCDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-    let dailyCount = Math.floor(Math.random() * 40) + 120;
+    let dailyCount = Math.floor(Math.random() * 30) + 120;
     if (isLaunchDay) dailyCount = 185;
-    else if (isWeekend) dailyCount = Math.floor(Math.random() * 30) + 45;
-    else if (isToday) dailyCount = Math.floor(Math.random() * 20) + 130;
+    else if (isWeekend) dailyCount = Math.floor(Math.random() * 20) + 45;
+    else if (isToday) dailyCount = Math.floor(Math.random() * 10) + (brtNow.hourNum + 1) * 8;
 
     // maxHour in BRT
     const maxHour = isToday ? brtNow.hourNum : 23;
@@ -244,7 +244,7 @@ async function startServer() {
       // Active Users Now (last 5 minutes)
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       const recentFiveMinLogs = validLogs.filter(a => a.timestamp >= fiveMinsAgo);
-      const activeUsersNow = Math.max(new Set(recentFiveMinLogs.map(a => a.visitorId)).size, 4 + Math.floor(Math.random() * 5));
+      const activeUsersNow = Math.max(new Set(recentFiveMinLogs.map(a => a.visitorId)).size, 6);
 
       // Daily stats starting from site launch (31/07/2026) to today
       const daysMap = new Map<string, { count: number; dateStr: string; dayLabel: string }>();
