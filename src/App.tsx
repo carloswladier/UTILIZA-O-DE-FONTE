@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { QuickStatsHeader } from './components/QuickStatsHeader';
 import { TerminalCard } from './components/TerminalCard';
@@ -6,12 +6,13 @@ import { PowerSupplyCard } from './components/PowerSupplyCard';
 import { TerminalDetailModal } from './components/TerminalDetailModal';
 import { ScannerModal } from './components/ScannerModal';
 import { TechnicalGuideTab } from './components/TechnicalGuideTab';
+import { AccessStatsTab } from './components/AccessStatsTab';
 import { TERMINALS_DATA } from './data/terminalsData';
 import { Terminal, PowerSupply, TerminalCategory } from './types';
 import { Search, Filter, X, Bookmark, Zap, Cpu, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'terminal' | 'scanner'>('terminal');
+  const [activeTab, setActiveTab] = useState<'terminal' | 'scanner' | 'acessos'>('terminal');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedVoltage, setSelectedVoltage] = useState<string>('all');
@@ -25,6 +26,33 @@ export default function App() {
   });
   const [selectedTerminal, setSelectedTerminal] = useState<Terminal | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  // Track site access on load and tab change
+  useEffect(() => {
+    let visitorId = localStorage.getItem('claro_visitor_id');
+    if (!visitorId) {
+      visitorId = 'v-' + Math.floor(1000 + Math.random() * 9000);
+      localStorage.setItem('claro_visitor_id', visitorId);
+    }
+
+    const tabName =
+      activeTab === 'terminal'
+        ? 'Por Terminal'
+        : activeTab === 'scanner'
+        ? 'Leitor IA (Foto)'
+        : 'Acessos no Site';
+
+    fetch('/api/track-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        visitorId,
+        tab: tabName,
+        userAgent: navigator.userAgent,
+        screenWidth: window.innerWidth
+      })
+    }).catch((err) => console.log('Track access error', err));
+  }, [activeTab]);
 
   // Toggle favorite
   const handleToggleFavorite = (terminalId: string) => {
@@ -316,6 +344,9 @@ export default function App() {
             }}
           />
         )}
+
+        {/* Tab Content 3: Métricas e Contador de Acessos ao Site */}
+        {activeTab === 'acessos' && <AccessStatsTab />}
       </main>
 
       {/* Terminal Detail Modal */}

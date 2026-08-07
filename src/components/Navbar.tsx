@@ -1,9 +1,9 @@
 import React from 'react';
-import { Zap, Cpu, Camera, Bookmark } from 'lucide-react';
+import { Zap, Cpu, Camera, Bookmark, Activity } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'terminal' | 'scanner';
-  setActiveTab: (tab: 'terminal' | 'scanner') => void;
+  activeTab: 'terminal' | 'scanner' | 'acessos';
+  setActiveTab: (tab: 'terminal' | 'scanner' | 'acessos') => void;
   favoritesCount: number;
   onOpenFavorites: () => void;
 }
@@ -36,11 +36,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Navigation Links - ONLY Por Terminal and Leitor IA (Foto) */}
+          {/* Navigation Links - Por Terminal, Leitor IA (Foto), and Acessos ao Site */}
           <nav className="hidden md:flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
               onClick={() => setActiveTab('terminal')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-sm font-bold transition-all ${
                 activeTab === 'terminal'
                   ? 'bg-red-600 text-white shadow-sm shadow-red-600/30'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('scanner')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-sm font-bold transition-all ${
                 activeTab === 'scanner'
                   ? 'bg-red-600 text-white shadow-sm shadow-red-600/30'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -60,6 +60,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Camera className="w-4 h-4 text-amber-500" />
               <span>Leitor IA (Foto)</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('acessos')}
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'acessos'
+                  ? 'bg-red-600 text-white shadow-sm shadow-red-600/30'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
+              <span>Acessos no Site</span>
             </button>
           </nav>
 
@@ -82,25 +94,35 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Mobile Nav Bar */}
-        <div className="md:hidden flex items-center justify-center space-x-4 py-2 border-t border-slate-200 text-xs">
+        <div className="md:hidden flex items-center justify-center space-x-2 py-2 border-t border-slate-200 text-xs overflow-x-auto">
           <button
             onClick={() => setActiveTab('terminal')}
-            className={`flex items-center space-x-1.5 py-1.5 px-4 rounded-xl font-bold transition-all ${
+            className={`flex items-center space-x-1 py-1.5 px-3 rounded-xl font-bold transition-all shrink-0 ${
               activeTab === 'terminal' ? 'bg-red-600 text-white' : 'text-slate-600 bg-slate-100'
             }`}
           >
-            <Cpu className="w-4 h-4" />
+            <Cpu className="w-3.5 h-3.5" />
             <span>Por Terminal</span>
           </button>
 
           <button
             onClick={() => setActiveTab('scanner')}
-            className={`flex items-center space-x-1.5 py-1.5 px-4 rounded-xl font-bold transition-all ${
+            className={`flex items-center space-x-1 py-1.5 px-3 rounded-xl font-bold transition-all shrink-0 ${
               activeTab === 'scanner' ? 'bg-red-600 text-white' : 'text-slate-600 bg-slate-100'
             }`}
           >
-            <Camera className="w-4 h-4" />
-            <span>Leitor IA (Foto)</span>
+            <Camera className="w-3.5 h-3.5" />
+            <span>Leitor IA</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('acessos')}
+            className={`flex items-center space-x-1 py-1.5 px-3 rounded-xl font-bold transition-all shrink-0 ${
+              activeTab === 'acessos' ? 'bg-red-600 text-white' : 'text-slate-600 bg-slate-100'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Acessos</span>
           </button>
         </div>
       </div>
