@@ -77,23 +77,45 @@ export const AccessStatsTab: React.FC = () => {
       }
     } catch (err: any) {
       console.warn('Backend analytics fetch issue, using local fallback tracking', err);
+      const getBRTNowLocal = () => {
+        const now = new Date();
+        const brt = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+        const year = brt.getUTCFullYear();
+        const month = String(brt.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(brt.getUTCDate()).padStart(2, '0');
+        const hour = brt.getUTCHours();
+        return { dateStr: `${year}-${month}-${day}`, hour };
+      };
+      const brtNowFallback = getBRTNowLocal();
+
       const storedCount = parseInt(localStorage.getItem('claro_access_count') || '1420', 10);
       const fallbackDays = Array.from({ length: 8 }, (_, i) => {
         const d = new Date(2026, 6, 31 + i);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayStr = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${dayStr}`;
         return {
-          dateStr: d.toISOString().split('T')[0],
-          dayLabel: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+          dateStr,
+          dayLabel: `${dayStr}/${m}`,
           count: i === 0 ? 185 : 120 + (i * 12) % 35
         };
       });
 
       const fallbackHourlyMap: Record<string, HourlySlot[]> = {};
       fallbackDays.forEach((day, idx) => {
-        fallbackHourlyMap[day.dateStr] = Array.from({ length: 24 }, (_, h) => ({
-          hour: `${h.toString().padStart(2, '0')}:00`,
-          hourNum: h,
-          count: h >= 8 && h <= 18 ? 8 + ((h + idx) % 10) : (h % 3 === 0 ? 2 : 0)
-        }));
+        const isToday = day.dateStr === brtNowFallback.dateStr;
+        fallbackHourlyMap[day.dateStr] = Array.from({ length: 24 }, (_, h) => {
+          let count = 0;
+          if (!isToday || h <= brtNowFallback.hour) {
+            count = h >= 8 && h <= 18 ? 8 + ((h + idx) % 10) : (h % 3 === 0 ? 2 : 0);
+          }
+          return {
+            hour: `${h.toString().padStart(2, '0')}:00`,
+            hourNum: h,
+            count
+          };
+        });
       });
 
       setData({
@@ -199,12 +221,30 @@ export const AccessStatsTab: React.FC = () => {
     }
   };
 
+  const getBRTNowUI = () => {
+    const now = new Date();
+    const brt = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+    const year = brt.getUTCFullYear();
+    const month = String(brt.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(brt.getUTCDate()).padStart(2, '0');
+    const hour = brt.getUTCHours();
+    return { dateStr: `${year}-${month}-${day}`, hour };
+  };
+
+  const brtNowUI = getBRTNowUI();
+
   // Active Selected Date Logic
   const activeDateItem = data.accessesByDay.find(d => d.dateStr === selectedDate) || data.accessesByDay[data.accessesByDay.length - 1];
-  const activeDateStr = activeDateItem?.dateStr || '2026-08-07';
+  const activeDateStr = activeDateItem?.dateStr || brtNowUI.dateStr;
 
-  // Active Hourly Distribution for Selected Date
-  const activeHourlyDistribution = data.hourlyByDate?.[activeDateStr] || data.accessesByHour || [];
+  // Active Hourly Distribution for Selected Date (Clamped so future hours today have 0 accesses)
+  const rawHourlyDist = data.hourlyByDate?.[activeDateStr] || data.accessesByHour || [];
+  const activeHourlyDistribution = rawHourlyDist.map(slot => {
+    if (activeDateStr === brtNowUI.dateStr && slot.hourNum > brtNowUI.hour) {
+      return { ...slot, count: 0 };
+    }
+    return slot;
+  });
 
   // Calculate Peak Hour for Active Date
   let activePeakHour = activeHourlyDistribution.find(h => h.count > 0)?.hour || '10:00';

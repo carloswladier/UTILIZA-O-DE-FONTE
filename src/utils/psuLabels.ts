@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+
 export interface PsuLabelStandard {
   voltage: string;
   current: string;
@@ -5,7 +7,7 @@ export interface PsuLabelStandard {
   labelDescription: string;
   badgeBg: string;
   badgeText: string;
-  customStyle?: React.CSSProperties;
+  customStyle?: CSSProperties;
   displayTag: string;
 }
 

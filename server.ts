@@ -19,36 +19,27 @@ interface AccessRecord {
 const DATA_FILE = path.join(process.cwd(), "access_logs_store.json");
 let accessLogs: AccessRecord[] = [];
 
-// Helper: extract exact date (YYYY-MM-DD), day label (DD/MM), hour (0-23) in Brasilia Timezone (America/Sao_Paulo, UTC-3)
+// Helper: extract exact date (YYYY-MM-DD), day label (DD/MM), hour (0-23) in Brasilia Timezone (UTC-3)
 function getBRTDetails(dateInput?: string | number | Date) {
   const d = dateInput ? new Date(dateInput) : new Date();
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  });
-  
-  const parts = formatter.formatToParts(d);
-  let year = "2026", month = "08", day = "07", hourStr = "12", minStr = "00", secStr = "00";
-  for (const p of parts) {
-    if (p.type === "year") year = p.value;
-    if (p.type === "month") month = p.value;
-    if (p.type === "day") day = p.value;
-    if (p.type === "hour") hourStr = p.value;
-    if (p.type === "minute") minStr = p.value;
-    if (p.type === "second") secStr = p.value;
-  }
-  let hourNum = parseInt(hourStr, 10);
-  if (isNaN(hourNum) || hourNum >= 24) hourNum = 0;
+  // Brasilia Time (BRT) is UTC-3 year-round
+  const brtMs = d.getTime() - (3 * 60 * 60 * 1000);
+  const brt = new Date(brtMs);
+
+  const yearNum = brt.getUTCFullYear();
+  const monthNum = brt.getUTCMonth() + 1;
+  const dayNum = brt.getUTCDate();
+  const hourNum = brt.getUTCHours();
+  const minNum = brt.getUTCMinutes();
+  const secNum = brt.getUTCSeconds();
+
+  const year = String(yearNum);
+  const month = String(monthNum).padStart(2, "0");
+  const day = String(dayNum).padStart(2, "0");
 
   const dateStr = `${year}-${month}-${day}`; // YYYY-MM-DD
   const dayLabel = `${day}/${month}`;       // DD/MM
-  return { dateStr, dayLabel, hourNum, minNum: parseInt(minStr, 10), secNum: parseInt(secStr, 10), yearNum: parseInt(year, 10), monthNum: parseInt(month, 10), dayNum: parseInt(day, 10) };
+  return { dateStr, dayLabel, hourNum, minNum, secNum, yearNum, monthNum, dayNum };
 }
 
 // Seed baseline access history starting from site launch on 31/07/2026
@@ -286,9 +277,21 @@ async function startServer() {
       validLogs.forEach(a => {
         const info = getBRTDetails(a.timestamp);
         if (hourlyByDate[info.dateStr] && hourlyByDate[info.dateStr][info.hourNum]) {
+          if (info.dateStr === todayStr && info.hourNum > brtNow.hourNum) {
+            return;
+          }
           hourlyByDate[info.dateStr][info.hourNum].count++;
         }
       });
+
+      // Explicitly zero out future hours for today in BRT
+      if (hourlyByDate[todayStr]) {
+        hourlyByDate[todayStr].forEach(item => {
+          if (item.hourNum > brtNow.hourNum) {
+            item.count = 0;
+          }
+        });
+      }
 
       // Hourly stats for today (00h to 23h)
       const hoursArray = hourlyByDate[todayStr] || Array.from({ length: 24 }, (_, h) => ({
