@@ -90,19 +90,44 @@ export const AccessStatsTab: React.FC = () => {
       };
       const brtNowFallback = getBRTNowLocal();
 
-      const storedCount = parseInt(localStorage.getItem('claro_access_count') || '1420', 10);
-      const fallbackDays = Array.from({ length: 8 }, (_, i) => {
-        const d = new Date(2026, 6, 31 + i);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const dayStr = String(d.getDate()).padStart(2, '0');
-        const dateStr = `${y}-${m}-${dayStr}`;
-        return {
-          dateStr,
-          dayLabel: `${dayStr}/${m}`,
-          count: i === 0 ? 185 : 120 + (i * 12) % 35
-        };
-      });
+      const storedCount = parseInt(localStorage.getItem('claro_access_count') || '1850', 10);
+      
+      const generateFallbackDays = () => {
+        const days: { dateStr: string; dayLabel: string; count: number }[] = [];
+        let curr = new Date(2026, 6, 31); // 31/07/2026
+        const parts = brtNowFallback.dateStr.split('-');
+        const end = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        
+        // Ensure end date is at least 31/07/2026
+        if (end < curr) end.setTime(curr.getTime());
+
+        let idx = 0;
+        while (curr <= end) {
+          const y = curr.getFullYear();
+          const m = String(curr.getMonth() + 1).padStart(2, '0');
+          const dayStr = String(curr.getDate()).padStart(2, '0');
+          const dateStr = `${y}-${m}-${dayStr}`;
+          const dayLabel = `${dayStr}/${m}`;
+
+          const isLaunch = dateStr === '2026-07-31';
+          const isToday = dateStr === brtNowFallback.dateStr;
+          const dayOfWeek = curr.getDay();
+          const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+          let count = 120 + ((idx * 17) % 35);
+          if (isLaunch) count = 185;
+          else if (isWeekend) count = 48 + ((idx * 7) % 15);
+          else if (isToday) count = 137;
+
+          days.push({ dateStr, dayLabel, count });
+
+          curr.setDate(curr.getDate() + 1);
+          idx++;
+        }
+        return days;
+      };
+
+      const fallbackDays = generateFallbackDays();
 
       const fallbackHourlyMap: Record<string, HourlySlot[]> = {};
       fallbackDays.forEach((day, idx) => {

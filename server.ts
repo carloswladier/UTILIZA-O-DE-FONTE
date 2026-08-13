@@ -60,8 +60,12 @@ function initAnalyticsStore() {
           }
           return true;
         });
-        saveLogsToFile();
-        return;
+        // Check if today (brtNow.dateStr) is present in accessLogs
+        const hasToday = accessLogs.some(a => getBRTDetails(a.timestamp).dateStr === brtNow.dateStr);
+        if (hasToday) {
+          saveLogsToFile();
+          return;
+        }
       }
     }
   } catch (e) {
