@@ -413,21 +413,30 @@ async function startServer() {
         }
       });
 
-      const prompt = `Você é um especialista em análise de etiquetas de fontes de alimentação de equipamentos da Claro (Book de Fontes & Terminais).
-Examine a foto da etiqueta fornecida com extrema precisão visual e extraia os seguintes dados:
+      const prompt = `Você é um especialista em análise de fontes de alimentação e etiquetas de equipamentos da Claro (Book de Fontes & Terminais Claro NET).
+Examine a imagem fornecida com extrema precisão visual, considerando com prioridade máxima tanto a ETIQUETA ADESIVA quanto os dados gravados na carcaça plástica:
 
-ORIENTAÇÕES DE LEITURA DA ETIQUETA:
-1. FABRICANTE / MARCA: Identifique a marca no topo ou corpo da etiqueta (ex: Sagemcom, MOSO, MEIC, LITE ON, NETBIT, AC BEL, FLEX, SHENZHEN HONOR, FRECOM, TELLESCOM).
-2. MODELO DA FONTE: Identifique o código do modelo exato (ex: MSG-H3-AGWR120-042A0-BR, MSG-H3500WR120-042A0-BR, MSG-V1500WR120-018I1-BR, ADS-42FKJ-12, NBS42E120350VB, MU06-B050120, etc.).
-3. P/N (PART NUMBER): Localize a linha "P/N:", "P/N" ou o código alfanumérico no formato XXXXXXXXX-XX (ex: 191591509-XX, 191591517-XX, 191698791-XX, 01570610300R).
-4. SAÍDA (TENSÃO & CORRENTE):
-   - Veja as especificações de saída ("SAÍDA: 12.0V === 3.5A" ou a etiqueta colorida inferior ex: "12VDC 3.5A").
-   - tensao: ex "12V", "20V", "5V", "9V"
-   - corrente: ex "3.5A", "1.5A", "2A", "2.5A", "4A"
-5. CÓDIGO SAP: Se houver código SAP de 8 dígitos impresso na etiqueta (ex: 22060652, 22063233), extraia-o. Se não houver, informe o SAP conhecido para este P/N.
-6. TERMINAL SUGERIDO & RESUMO:
-   - Identifique o equipamento/terminal Claro compatível (ex: para fonte Sagemcom/MOSO 12V 3.5A P/N 191591509-XX ou MSG-H3, os terminais são "FAST3895 / FAST3896" ou "CH8568" / "HI3120" / "WIFI7 MESH 380BA").
-   - Escreva um resumo explicativo claro e direto de 2 frases.
+REGRAS CRÍTICAS DE IDENTIFICAÇÃO:
+1. PRIORIDADE MÁXIMA PARA A ETIQUETA ADESIVA (STICKER):
+   - Os técnicos da Claro utilizam etiquetas adesivas coloridas com a especificação elétrica para identificação visual imediata da amperagem:
+     * Etiqueta VERMELHA com letras AZUIS = 12V 2.5A (ex: "12V 2.5A")
+     * Etiqueta VERMELHA com letras BRANCAS = 12V 2A (ex: "12V 2A")
+     * Etiqueta VERMELHA com letras AMARELAS = 12V 1.5A (ex: "12V 1.5A")
+     * Etiqueta VERMELHA com letras LARANJAS = 12V 3.5A (ex: "12V 3.5A")
+     * Etiqueta VERMELHA com letras VERDES = 12V 4A (ex: "12V 4A")
+     * Etiqueta VERMELHA com letras PRETAS = 12V 3A (ex: "12V 3A")
+     * Etiqueta AMARELA com letras PRETAS = 20V 2.5A
+   - Se houver uma etiqueta adesiva colada na fonte (ex: adesivo vermelho informando "12V 2.5A"), a amperagem correta da fonte é RIGOROSAMENTE a indicada na etiqueta! NUNCA a confunda com 2A ou 1.5A.
+
+2. LEITURA DOS DADOS NA CARCAÇA PLÁSTICA OU RÓTULO:
+   - MODELO DA FONTE: Localize "Model:", "MOD:" ou código do modelo (ex: WAG005, WAG005 ID AD8G2, MSG-H3-AGWR120-042A0-BR, ADS-42FKJ-12, NBS42E120350VB, etc.).
+   - PART NUMBER (P/N): Localize "P/N:", "Part Number" ou código numérico/alfanumérico (ex: 37469470, 191591509-XX, 191698791-XX).
+   - FABRICANTE: Localize a marca na carcaça ou rótulo (ex: AcBel, Technicolor, Sagemcom, MOSO, Netbit, Flex Industries, Lite On, Delta).
+   - SAÍDA ELÉTRICA (OUTPUT): Verifique "OUTPUT: 12V === 2.5A" ou similar.
+   - Se a fonte tiver "WAG005 ID: AD8G2" ou P/N "37469470", "AcBel / Technicolor" e saída 12V 2.5A, ela pertence aos equipamentos CGA2231CLB ou TC7337 / DCI804 com SAP 22056543.
+
+3. CORRESPONDÊNCIA COM O BOOK DA CLARO:
+   - Se corrente detectada for 2.5A (ou 2,5A), o terminal sugerido DEVE ser de 12V 2.5A (ex: CGA2231CLB ou TC7337 / DCI804), JAMAIS um de 12V 2A (como S4KW1/S4KW2).
 
 Responda ESTRITAMENTE em formato JSON com a estrutura:
 {
@@ -467,13 +476,35 @@ Responda ESTRITAMENTE em formato JSON com a estrutura:
         contents = [prompt];
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents,
-        config: {
-          responseMimeType: "application/json"
+      if (textQuery && textQuery.trim()) {
+        contents.push(`Dados complementares fornecidos pelo técnico/usuário: ${textQuery.trim()}`);
+      }
+
+      const modelsToTry = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+      let response: any = null;
+      let lastError: any = null;
+
+      for (const modelName of modelsToTry) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          if (response?.text) {
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Modelo ${modelName} temporariamente indisponível (${err?.message || err}), tentando próximo...`);
         }
-      });
+      }
+
+      if (!response?.text) {
+        throw lastError || new Error("Não foi possível obter resposta de nenhum modelo de IA.");
+      }
 
       const jsonText = response.text;
       let parsed = {};

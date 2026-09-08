@@ -65,7 +65,10 @@ export const AccessStatsTab: React.FC = () => {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simMessage, setSimMessage] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
+  const [startDate, setStartDate] = useState<string>('2026-09-01');
+  const [endDate, setEndDate] = useState<string>('');
+  const [inspectedDate, setInspectedDate] = useState<string | null>(null);
 
   const fetchAnalytics = async () => {
     try {
@@ -74,8 +77,10 @@ export const AccessStatsTab: React.FC = () => {
       const json = await res.json();
       if (json.success) {
         setData(json);
-        // Default to latest date if not set yet, preserving user choice
-        setSelectedDate(prev => prev || (json.accessesByDay && json.accessesByDay.length > 0 ? json.accessesByDay[json.accessesByDay.length - 1].dateStr : ''));
+        const todayStr = (json.accessesByDay && json.accessesByDay.length > 0)
+          ? json.accessesByDay[json.accessesByDay.length - 1].dateStr
+          : '2026-09-08';
+        setEndDate(prev => prev || todayStr);
       }
     } catch (err: any) {
       console.warn('Backend analytics fetch issue, using local fallback tracking', err);
@@ -174,7 +179,7 @@ export const AccessStatsTab: React.FC = () => {
         ]
       });
 
-      setSelectedDate(prev => prev || (fallbackDays.length > 0 ? fallbackDays[fallbackDays.length - 1].dateStr : ''));
+      setEndDate(prev => prev || brtNowFallback.dateStr);
     } finally {
       setLoading(false);
     }
@@ -260,32 +265,6 @@ export const AccessStatsTab: React.FC = () => {
 
   const brtNowUI = getBRTNowUI();
 
-  // Active Selected Date Logic
-  const activeDateItem = data.accessesByDay.find(d => d.dateStr === selectedDate) || data.accessesByDay[data.accessesByDay.length - 1];
-  const activeDateStr = activeDateItem?.dateStr || brtNowUI.dateStr;
-
-  // Active Hourly Distribution for Selected Date (Clamped so future hours today have 0 accesses)
-  const rawHourlyDist = data.hourlyByDate?.[activeDateStr] || data.accessesByHour || [];
-  const activeHourlyDistribution = rawHourlyDist.map(slot => {
-    if (activeDateStr === brtNowUI.dateStr && slot.hourNum > brtNowUI.hour) {
-      return { ...slot, count: 0 };
-    }
-    return slot;
-  });
-
-  // Calculate Peak Hour for Active Date
-  let activePeakHour = activeHourlyDistribution.find(h => h.count > 0)?.hour || '10:00';
-  let activePeakCount = 0;
-  activeHourlyDistribution.forEach(h => {
-    if (h.count > activePeakCount) {
-      activePeakCount = h.count;
-      activePeakHour = h.hour;
-    }
-  });
-
-  const maxDayCount = Math.max(...data.accessesByDay.map(d => d.count), 1);
-  const maxActiveHourCount = Math.max(...activeHourlyDistribution.map(h => h.count), 1);
-
   // Format date display (e.g., 31/07/2026)
   const formatDateFormatted = (isoStr: string) => {
     if (!isoStr) return '';
@@ -294,14 +273,140 @@ export const AccessStatsTab: React.FC = () => {
     return isoStr;
   };
 
-  // Dynamic Filtering for All Cards & Graphs based on selectedDate
-  const allLogsList = data.allLogs || data.recentLogs || [];
-  const selectedDateLogs = allLogsList.filter(l => getBRTDateStr(l.timestamp) === activeDateStr);
+  // Month and Date Range Handlers
+  const handleMonthChange = (monthKey: string) => {
+    setSelectedMonth(monthKey);
+    setInspectedDate(null);
+    if (monthKey === '2026-09') {
+      setStartDate('2026-09-01');
+      setEndDate(brtNowUI.dateStr);
+    } else if (monthKey === '2026-08') {
+      setStartDate('2026-08-01');
+      setEndDate('2026-08-31');
+    } else if (monthKey === '2026-07') {
+      setStartDate('2026-07-31');
+      setEndDate('2026-07-31');
+    } else if (monthKey === 'all') {
+      setStartDate('2026-07-31');
+      setEndDate(brtNowUI.dateStr);
+    }
+  };
 
-  // 1. Device breakdown for selected date
+  const checkMonthMatch = (s: string, e: string) => {
+    if (s === '2026-09-01' && (e === brtNowUI.dateStr || e === '2026-09-30')) {
+      setSelectedMonth('2026-09');
+    } else if (s === '2026-08-01' && e === '2026-08-31') {
+      setSelectedMonth('2026-08');
+    } else if (s === '2026-07-31' && e === '2026-07-31') {
+      setSelectedMonth('2026-07');
+    } else if (s === '2026-07-31' && (e === brtNowUI.dateStr || e >= '2026-09-08')) {
+      setSelectedMonth('all');
+    } else {
+      setSelectedMonth('custom');
+    }
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    setInspectedDate(null);
+    checkMonthMatch(val, endDate);
+  };
+
+  const handleEndDateChange = (val: string) => {
+    setEndDate(val);
+    setInspectedDate(null);
+    checkMonthMatch(startDate, val);
+  };
+
+  // Determine active boundaries
+  const effStart = startDate || '2026-07-31';
+  const effEnd = endDate || brtNowUI.dateStr;
+  const activeStartDate = effStart <= effEnd ? effStart : effEnd;
+  const activeEndDate = effStart <= effEnd ? effEnd : effStart;
+
+  // Filtered days within the selected start and end dates
+  const filteredDays = data.accessesByDay.filter(d => d.dateStr >= activeStartDate && d.dateStr <= activeEndDate);
+  const visibleDays = filteredDays.length > 0 ? filteredDays : data.accessesByDay;
+  const totalPeriodAccesses = visibleDays.reduce((acc, d) => acc + d.count, 0);
+
+  // Filter logs list within active period
+  const allLogsList = data.allLogs || data.recentLogs || [];
+  const periodLogs = allLogsList.filter(l => {
+    const dStr = getBRTDateStr(l.timestamp);
+    return dStr >= activeStartDate && dStr <= activeEndDate;
+  });
+
+  const periodUniqueVisitors = periodLogs.length > 0
+    ? new Set(periodLogs.map(l => l.visitorId)).size
+    : Math.max(1, Math.round(totalPeriodAccesses * 0.44));
+
+  // If user clicked a day on the bar chart to inspect its hourly details
+  const activeFocusDate = inspectedDate || (visibleDays.length === 1 ? visibleDays[0].dateStr : null);
+
+  // Hourly Distribution Calculation:
+  let activeHourlyDistribution: HourlySlot[] = [];
+  let hourlyChartTitle = "";
+  let hourlyChartSubtitle = "";
+  let activePeakHour = "10:00";
+  let activePeakCount = 0;
+
+  if (activeFocusDate) {
+    const rawHourly = data.hourlyByDate?.[activeFocusDate] || data.accessesByHour || [];
+    activeHourlyDistribution = rawHourly.map(slot => {
+      if (activeFocusDate === brtNowUI.dateStr && slot.hourNum > brtNowUI.hour) {
+        return { ...slot, count: 0 };
+      }
+      return slot;
+    });
+    hourlyChartTitle = `Pico de Horários em ${formatDateFormatted(activeFocusDate)}`;
+    const inspCount = visibleDays.find(d => d.dateStr === activeFocusDate)?.count || 0;
+    hourlyChartSubtitle = `Visualizando detalhes das 24h de ${formatDateFormatted(activeFocusDate)} (${inspCount} acessos no dia)`;
+  } else {
+    // Aggregated period hours across visibleDays
+    const aggSlots: HourlySlot[] = Array.from({ length: 24 }, (_, h) => ({
+      hour: `${h.toString().padStart(2, '0')}:00`,
+      hourNum: h,
+      count: 0
+    }));
+
+    visibleDays.forEach(d => {
+      const daySlots = data.hourlyByDate?.[d.dateStr] || [];
+      daySlots.forEach(slot => {
+        if (d.dateStr === brtNowUI.dateStr && slot.hourNum > brtNowUI.hour) {
+          return;
+        }
+        aggSlots[slot.hourNum].count += slot.count;
+      });
+    });
+
+    activeHourlyDistribution = aggSlots;
+    hourlyChartTitle = `Distribuição por Horário no Período`;
+    hourlyChartSubtitle = `${formatDateFormatted(activeStartDate)} até ${formatDateFormatted(activeEndDate)} • Total: ${totalPeriodAccesses.toLocaleString('pt-BR')} acessos`;
+  }
+
+  activeHourlyDistribution.forEach(h => {
+    if (h.count > activePeakCount) {
+      activePeakCount = h.count;
+      activePeakHour = h.hour;
+    }
+  });
+
+  const maxDayCount = Math.max(...visibleDays.map(d => d.count), 1);
+  const maxActiveHourCount = Math.max(...activeHourlyDistribution.map(h => h.count), 1);
+
+  // Target logs for breakdowns (inspected day or entire period)
+  const targetLogs = activeFocusDate
+    ? periodLogs.filter(l => getBRTDateStr(l.timestamp) === activeFocusDate)
+    : periodLogs;
+
+  const targetTotal = activeFocusDate
+    ? (visibleDays.find(d => d.dateStr === activeFocusDate)?.count || targetLogs.length || 1)
+    : totalPeriodAccesses;
+
+  // 1. Device breakdown
   let selectedDeviceCounts = { Mobile: 0, Desktop: 0, Tablet: 0 };
-  if (selectedDateLogs.length > 0) {
-    selectedDateLogs.forEach(l => {
+  if (targetLogs.length > 0) {
+    targetLogs.forEach(l => {
       if (selectedDeviceCounts[l.deviceType] !== undefined) {
         selectedDeviceCounts[l.deviceType]++;
       } else {
@@ -309,11 +414,10 @@ export const AccessStatsTab: React.FC = () => {
       }
     });
   } else {
-    const totalDay = activeDateItem?.count || 1;
     selectedDeviceCounts = {
-      Mobile: Math.round(totalDay * 0.54),
-      Desktop: Math.round(totalDay * 0.38),
-      Tablet: Math.max(0, totalDay - Math.round(totalDay * 0.54) - Math.round(totalDay * 0.38))
+      Mobile: Math.round(targetTotal * 0.54),
+      Desktop: Math.round(targetTotal * 0.38),
+      Tablet: Math.max(0, targetTotal - Math.round(targetTotal * 0.54) - Math.round(targetTotal * 0.38))
     };
   }
 
@@ -322,45 +426,36 @@ export const AccessStatsTab: React.FC = () => {
   const desktopPct = Math.round((selectedDeviceCounts.Desktop / selectedTotalDevs) * 100);
   const tabletPct = Math.max(0, 100 - mobilePct - desktopPct);
 
-  // 2. Browser breakdown for selected date
+  // 2. Browser breakdown
   let selectedBrowserStats: Record<string, number> = {};
-  if (selectedDateLogs.length > 0) {
-    selectedDateLogs.forEach(l => {
+  if (targetLogs.length > 0) {
+    targetLogs.forEach(l => {
       selectedBrowserStats[l.browser] = (selectedBrowserStats[l.browser] || 0) + 1;
     });
   } else {
-    const totalDay = activeDateItem?.count || 1;
     selectedBrowserStats = {
-      'Chrome Mobile': Math.round(totalDay * 0.45),
-      'Chrome': Math.round(totalDay * 0.32),
-      'Safari Mobile': Math.round(totalDay * 0.15),
-      'Edge': Math.round(totalDay * 0.08)
+      'Chrome Mobile': Math.round(targetTotal * 0.45),
+      'Chrome': Math.round(targetTotal * 0.32),
+      'Safari Mobile': Math.round(targetTotal * 0.15),
+      'Edge': Math.round(targetTotal * 0.08)
     };
   }
 
-  // 3. Tab / Section breakdown for selected date
+  // 3. Tab / Section breakdown
   let selectedTabStats: Record<string, number> = {};
-  if (selectedDateLogs.length > 0) {
-    selectedDateLogs.forEach(l => {
+  if (targetLogs.length > 0) {
+    targetLogs.forEach(l => {
       const tabName = l.tab || 'Por Terminal';
       selectedTabStats[tabName] = (selectedTabStats[tabName] || 0) + 1;
     });
   } else {
-    const totalDay = activeDateItem?.count || 1;
     selectedTabStats = {
-      'Acessos no Site': Math.round(totalDay * 0.48),
-      'Por Terminal': Math.round(totalDay * 0.32),
-      'Ficha Técnica': Math.round(totalDay * 0.12),
-      'Leitor IA (Foto)': Math.round(totalDay * 0.08)
+      'Acessos no Site': Math.round(targetTotal * 0.48),
+      'Por Terminal': Math.round(targetTotal * 0.32),
+      'Ficha Técnica': Math.round(targetTotal * 0.12),
+      'Leitor IA (Foto)': Math.round(targetTotal * 0.08)
     };
   }
-
-  // 4. Unique Visitors for selected date
-  const totalAccessesForSelectedDate = activeDateItem?.count || selectedDateLogs.length || 0;
-  const logUniqueVisitors = selectedDateLogs.length > 0 ? new Set(selectedDateLogs.map(l => l.visitorId)).size : 0;
-  const selectedUniqueVisitors = logUniqueVisitors > 0
-    ? logUniqueVisitors
-    : Math.max(1, Math.round(totalAccessesForSelectedDate * 0.44));
 
   const totalAccessesAllTime = data.summary.totalAccessesAllTime || data.accessesByDay.reduce((acc, curr) => acc + curr.count, 0) || data.summary.totalAccesses;
 
@@ -431,74 +526,152 @@ export const AccessStatsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Date Filter Control Bar */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3 flex-wrap gap-y-2">
-          <div className="flex items-center space-x-2 text-slate-800 font-extrabold text-sm">
-            <Filter className="w-4 h-4 text-red-600" />
-            <span>Filtrar por Data:</span>
-          </div>
+      {/* Date & Month Filter Control Bar */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex items-center space-x-3 flex-wrap gap-y-3">
+            <div className="flex items-center space-x-2 text-slate-900 font-extrabold text-sm">
+              <Filter className="w-4 h-4 text-red-600" />
+              <span>Filtro de Consulta:</span>
+            </div>
 
-          {/* Date Selector Dropdown */}
-          <div className="relative">
-            <select
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-slate-100 hover:bg-slate-200/80 text-slate-900 text-xs font-bold py-2 px-3.5 pr-8 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer transition-all shadow-2xs"
-            >
-              {data.accessesByDay.map((dayItem) => (
-                <option key={dayItem.dateStr} value={dayItem.dateStr}>
-                  {formatDateFormatted(dayItem.dateStr)}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Consulta por Mês (Select) */}
+            <div className="flex items-center space-x-1.5 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-300 rounded-xl px-2.5 py-1.5 transition-all shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-red-600 shrink-0" />
+              <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">Mês:</span>
+              <select
+                id="filter-month-select"
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                className="bg-transparent text-slate-900 text-xs font-bold focus:outline-hidden cursor-pointer pr-1"
+              >
+                <option value="2026-09">Setembro / 2026 (Mês Atual)</option>
+                <option value="2026-08">Agosto / 2026</option>
+                <option value="2026-07">Julho / 2026 (Lançamento)</option>
+                <option value="all">Todos os Meses (Desde o Início)</option>
+                <option value="custom">Personalizado (Data Início / Fim)</option>
+              </select>
+            </div>
 
-          {/* Quick Select Preset Buttons */}
-          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-            <button
-              onClick={() => setSelectedDate('2026-07-31')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                selectedDate === '2026-07-31'
-                  ? 'bg-red-600 text-white border-red-600 shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-              }`}
-            >
-              31/07/2026
-            </button>
+            {/* Intervalo Personalizado: Data Início e Data Fim */}
+            <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+              <div className="flex items-center space-x-1.5 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-300 rounded-xl px-2.5 py-1.5 transition-all shadow-2xs">
+                <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">Data Início:</span>
+                <input
+                  type="date"
+                  id="filter-start-date"
+                  value={startDate}
+                  min="2026-07-31"
+                  max={brtNowUI.dateStr}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className="bg-transparent text-slate-900 font-bold text-xs focus:outline-hidden cursor-pointer"
+                />
+              </div>
 
-            {data.accessesByDay.length > 1 && (
+              <div className="flex items-center space-x-1.5 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-300 rounded-xl px-2.5 py-1.5 transition-all shadow-2xs">
+                <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">Data Fim:</span>
+                <input
+                  type="date"
+                  id="filter-end-date"
+                  value={endDate}
+                  min={startDate || "2026-07-31"}
+                  max={brtNowUI.dateStr}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  className="bg-transparent text-slate-900 font-bold text-xs focus:outline-hidden cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Quick Preset Buttons */}
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
               <button
-                onClick={() => setSelectedDate(data.accessesByDay[data.accessesByDay.length - 2]?.dateStr)}
+                type="button"
+                onClick={() => handleMonthChange('2026-09')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                  selectedDate === data.accessesByDay[data.accessesByDay.length - 2]?.dateStr
+                  selectedMonth === '2026-09'
                     ? 'bg-red-600 text-white border-red-600 shadow-xs'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                 }`}
               >
-                {formatDateFormatted(data.accessesByDay[data.accessesByDay.length - 2]?.dateStr)}
+                Setembro (Atual)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleMonthChange('2026-08')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  selectedMonth === '2026-08'
+                    ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                }`}
+              >
+                Agosto/26
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleMonthChange('2026-07')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  selectedMonth === '2026-07'
+                    ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                }`}
+              >
+                Julho/26
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate(brtNowUI.dateStr);
+                  setEndDate(brtNowUI.dateStr);
+                  setSelectedMonth('custom');
+                  setInspectedDate(null);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  startDate === brtNowUI.dateStr && endDate === brtNowUI.dateStr && selectedMonth === 'custom'
+                    ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                }`}
+              >
+                Hoje ({formatDateFormatted(brtNowUI.dateStr)})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleMonthChange('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  selectedMonth === 'all'
+                    ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                }`}
+              >
+                Todo o Período
+              </button>
+            </div>
+          </div>
+
+          {/* Period Summary Indicator Badge */}
+          <div className="flex items-center space-x-2 bg-red-50 border border-red-200/80 text-red-900 px-3.5 py-2 rounded-xl text-xs font-bold self-start xl:self-auto shadow-2xs">
+            <MousePointerClick className="w-4 h-4 text-red-600 shrink-0" />
+            <span>
+              Período:{' '}
+              <strong className="underline decoration-red-400">{formatDateFormatted(activeStartDate)}</strong>
+              {activeStartDate !== activeEndDate && (
+                <> até <strong className="underline decoration-red-400">{formatDateFormatted(activeEndDate)}</strong></>
+              )}
+              {' '}— <span className="text-red-700 font-black">{totalPeriodAccesses.toLocaleString('pt-BR')} acessos</span> ({periodUniqueVisitors.toLocaleString('pt-BR')} visitantes)
+            </span>
+            {inspectedDate && (
+              <button
+                type="button"
+                onClick={() => setInspectedDate(null)}
+                className="ml-2 bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs"
+              >
+                Limpar foco ({formatDateFormatted(inspectedDate)})
               </button>
             )}
-
-            <button
-              onClick={() => setSelectedDate(data.accessesByDay[data.accessesByDay.length - 1]?.dateStr)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                selectedDate === data.accessesByDay[data.accessesByDay.length - 1]?.dateStr
-                  ? 'bg-red-600 text-white border-red-600 shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-              }`}
-            >
-              {formatDateFormatted(data.accessesByDay[data.accessesByDay.length - 1]?.dateStr)} (Hoje)
-            </button>
           </div>
-        </div>
-
-        {/* Selected Date Summary Indicator */}
-        <div className="flex items-center space-x-2 bg-red-50 border border-red-100 text-red-900 px-3.5 py-1.5 rounded-xl text-xs font-bold self-start md:self-auto">
-          <MousePointerClick className="w-4 h-4 text-red-600 shrink-0" />
-          <span>
-            Exibindo dados de <strong className="underline decoration-red-400">{formatDateFormatted(activeDateStr)}</strong> ({totalAccessesForSelectedDate} acessos no dia)
-          </span>
         </div>
       </div>
 
@@ -523,46 +696,54 @@ export const AccessStatsTab: React.FC = () => {
           <p className="text-xs text-slate-400 mt-1">Acessos acumulados desde 31/07/2026</p>
         </div>
 
-        {/* Card 1: Accesses on Selected Date */}
+        {/* Card 1: Accesses in Active Period / Day */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs relative overflow-hidden group hover:border-red-300 transition-all">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos no Dia</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              {activeFocusDate ? 'Acessos no Dia' : 'Acessos no Período'}
+            </span>
             <div className="w-9 h-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center border border-red-100">
               <Eye className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
             <span className="text-3xl font-black text-slate-900 tracking-tight">
-              {totalAccessesForSelectedDate.toLocaleString('pt-BR')}
+              {targetTotal.toLocaleString('pt-BR')}
             </span>
             <span className="text-xs font-bold text-red-600 flex items-center">
-              {formatDateFormatted(activeDateStr)}
+              {activeFocusDate ? formatDateFormatted(activeFocusDate) : `${formatDateFormatted(activeStartDate)} - ${formatDateFormatted(activeEndDate)}`}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Total acumulado no dia selecionado</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {activeFocusDate ? `Total no dia ${formatDateFormatted(activeFocusDate)}` : 'Total no intervalo selecionado'}
+          </p>
         </div>
 
-        {/* Card 2: Unique Visitors on Selected Date */}
+        {/* Card 2: Unique Visitors in Active Period / Day */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Visitantes Únicos no Dia</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              {activeFocusDate ? 'Visitantes no Dia' : 'Visitantes no Período'}
+            </span>
             <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100">
               <Users className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
             <span className="text-3xl font-black text-slate-900 tracking-tight">
-              {selectedUniqueVisitors.toLocaleString('pt-BR')}
+              {periodUniqueVisitors.toLocaleString('pt-BR')}
             </span>
             <span className="text-xs font-semibold text-slate-500">técnicos / IPs</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Visitantes únicos em {formatDateFormatted(activeDateStr)}</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {activeFocusDate ? `Visitantes únicos em ${formatDateFormatted(activeFocusDate)}` : 'Visitantes únicos no período'}
+          </p>
         </div>
 
-        {/* Card 3: Peak Hour for Selected Date */}
+        {/* Card 3: Peak Hour in Active Period */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs relative overflow-hidden group hover:border-blue-300 transition-all">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pico do Dia</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pico de Horário</span>
             <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
               <Clock className="w-5 h-5" />
             </div>
@@ -573,7 +754,7 @@ export const AccessStatsTab: React.FC = () => {
             </span>
             <span className="text-xs font-bold text-blue-600">({activePeakCount} acc/h)</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Horário de maior tráfego em {formatDateFormatted(activeDateStr)}</p>
+          <p className="text-xs text-slate-400 mt-1">Horário de maior tráfego no filtro atual</p>
         </div>
 
         {/* Card 4: Active Users Now */}
@@ -598,60 +779,80 @@ export const AccessStatsTab: React.FC = () => {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Chart 1: Daily Accesses (From 31/07 Launch) */}
+        {/* Chart 1: Daily Accesses */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
                 <BarChart3 className="w-5 h-5 text-red-600" />
-                <span>Histórico de Acessos Diários (Desde 31/07)</span>
+                <span>Histórico de Acessos Diários ({formatDateFormatted(activeStartDate)} a {formatDateFormatted(activeEndDate)})</span>
               </h3>
               <p className="text-xs text-slate-500">
-                Clique em qualquer barra para selecionar o dia e analisar o pico de horário
+                {activeFocusDate
+                  ? `Visualizando 24h de ${formatDateFormatted(activeFocusDate)}. Clique nele novamente para restaurar o período.`
+                  : 'Clique em qualquer barra para analisar a distribuição horária daquele dia específico.'}
               </p>
             </div>
+            {activeFocusDate && (
+              <button
+                type="button"
+                onClick={() => setInspectedDate(null)}
+                className="text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-xl transition-all shadow-2xs shrink-0"
+              >
+                Ver Todo o Período
+              </button>
+            )}
           </div>
 
           {/* Bar Chart Graphics 1 */}
-          <div className="pt-4 pb-2">
-            <div className="h-48 flex items-end justify-between gap-1.5 sm:gap-2">
-              {data.accessesByDay.map((item) => {
-                const heightPct = Math.max(Math.round((item.count / maxDayCount) * 100), 8);
-                const isSelected = item.dateStr === activeDateStr;
+          <div className="pt-2 pb-2">
+            <div className="h-56 flex items-end justify-between gap-1 sm:gap-1.5 overflow-x-auto pb-2.5 px-1">
+              {visibleDays.map((item) => {
+                const heightPct = Math.max(Math.round((item.count / maxDayCount) * 68), 8);
+                const isSelected = item.dateStr === (activeFocusDate || '');
                 const isLaunch = item.dateStr === '2026-07-31';
 
                 return (
                   <div
                     key={item.dateStr}
-                    onClick={() => setSelectedDate(item.dateStr)}
-                    className="flex-1 flex flex-col items-center h-full justify-end group relative cursor-pointer"
+                    onClick={() => setInspectedDate(prev => prev === item.dateStr ? null : item.dateStr)}
+                    className="flex-1 min-w-[20px] sm:min-w-[24px] flex flex-col items-center h-full justify-end group relative cursor-pointer"
                   >
                     {/* Tooltip */}
-                    <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-all bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg shadow-lg pointer-events-none z-20 whitespace-nowrap text-center">
+                    <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-all bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg shadow-lg pointer-events-none z-30 whitespace-nowrap text-center">
                       <div>{item.dayLabel}/2026 {isLaunch ? '🚀 Launch' : ''}</div>
                       <div className="text-red-400 font-black">{item.count} acessos</div>
-                      <div className="text-[9px] text-slate-300 font-normal">Clique para selecionar</div>
+                      <div className="text-[9px] text-slate-300 font-normal">
+                        {isSelected ? 'Clique para desmarcar foco' : 'Clique para ver 24h deste dia'}
+                      </div>
                     </div>
+
+                    {/* Value on top of bar (always visible, never clipped) */}
+                    <span
+                      className={`text-[10px] font-black leading-none mb-1 text-center whitespace-nowrap transition-all select-none pointer-events-none ${
+                        isSelected
+                          ? 'text-red-600 scale-110'
+                          : item.count === maxDayCount
+                          ? 'text-red-600 font-black'
+                          : 'text-slate-700 group-hover:text-red-600'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
 
                     {/* Bar */}
                     <div
                       style={{ height: `${heightPct}%` }}
-                      className={`w-full rounded-t-lg transition-all duration-300 relative ${
+                      className={`w-full rounded-t-md sm:rounded-t-lg transition-all duration-300 relative ${
                         isSelected
                           ? 'bg-gradient-to-t from-red-600 to-red-500 shadow-md shadow-red-500/50 scale-105 border-t-2 border-red-300'
-                          : 'bg-slate-200 group-hover:bg-red-400/80 group-hover:scale-102'
+                          : item.count === maxDayCount
+                          ? 'bg-gradient-to-t from-red-500 to-red-400 group-hover:from-red-600 group-hover:to-red-500'
+                          : 'bg-slate-200 group-hover:bg-red-400/80'
                       }`}
-                    >
-                      <span
-                        className={`text-[10px] font-extrabold absolute -top-5 left-1/2 -translate-x-1/2 ${
-                          isSelected ? 'text-red-600 font-black scale-110' : 'text-slate-700 group-hover:text-red-700'
-                        }`}
-                      >
-                        {item.count}
-                      </span>
-                    </div>
+                    />
 
-                    {/* X-axis Label */}
+                    {/* X-axis Day Label */}
                     <div className="mt-2 text-center w-full">
                       <span
                         className={`text-[10px] font-bold block ${
@@ -673,35 +874,35 @@ export const AccessStatsTab: React.FC = () => {
           <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-100">
             <span className="flex items-center space-x-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Clique no dia desejado para filtrar todo o painel.</span>
+              <span>Clique no dia desejado no gráfico para focar as estatísticas horárias.</span>
             </span>
           </div>
         </div>
 
-        {/* Chart 2: Hourly Access Distribution on Selected Date */}
+        {/* Chart 2: Hourly Access Distribution on Selected Date/Period */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-0.5">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
                 <Clock className="w-5 h-5 text-amber-500" />
-                <span>Pico de Acessos Por Horário em {formatDateFormatted(activeDateStr)}</span>
+                <span>{hourlyChartTitle}</span>
               </h3>
               <p className="text-xs text-slate-500">
-                Distribuição das 24h no dia selecionado ({totalAccessesForSelectedDate} acessos no dia)
+                {hourlyChartSubtitle}
               </p>
             </div>
 
             <div className="bg-slate-900 text-white border border-slate-800 px-3 py-1 rounded-xl text-xs font-bold flex items-center space-x-1.5 self-start sm:self-auto shrink-0 shadow-xs">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Pico no Dia: {activePeakHour} ({activePeakCount} acessos)</span>
+              <span>Pico: {activePeakHour} ({activePeakCount} acessos)</span>
             </div>
           </div>
 
           {/* Bar Chart Graphics 2 */}
-          <div className="pt-6 pb-2">
-            <div className="h-48 flex items-end justify-between gap-1">
+          <div className="pt-2 pb-2">
+            <div className="h-56 flex items-end justify-between gap-1 pb-2.5 px-1">
               {activeHourlyDistribution.map((item) => {
-                const heightPct = Math.max(Math.round((item.count / maxActiveHourCount) * 100), 6);
+                const heightPct = Math.max(Math.round((item.count / maxActiveHourCount) * 68), 6);
                 const isPeak = item.hour === activePeakHour && activePeakCount > 0;
 
                 let barColor = 'bg-slate-200';
@@ -717,27 +918,27 @@ export const AccessStatsTab: React.FC = () => {
                   barColor = 'bg-emerald-500 hover:bg-emerald-600';
                   textColor = 'text-emerald-700 font-extrabold';
                 } else {
-                  // item.count > 10
                   barColor = 'bg-red-600 hover:bg-red-700';
                   textColor = 'text-red-700 font-extrabold';
                 }
 
                 return (
-                  <div key={item.hour} className="flex-1 flex flex-col items-center h-full justify-end group relative">
+                  <div key={item.hour} className="flex-1 min-w-[12px] flex flex-col items-center h-full justify-end group relative">
                     {/* Tooltip */}
-                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-all bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-lg pointer-events-none z-20 whitespace-nowrap">
+                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-all bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-lg pointer-events-none z-30 whitespace-nowrap">
                       {item.hour}: {item.count} acessos
                     </div>
+
+                    {/* Value above bar */}
+                    <span className={`text-[9px] font-bold leading-none mb-1 text-center whitespace-nowrap select-none pointer-events-none ${textColor}`}>
+                      {item.count}
+                    </span>
 
                     {/* Bar */}
                     <div
                       style={{ height: `${heightPct}%` }}
-                      className={`w-full rounded-t-xs transition-all duration-300 relative ${barColor}`}
-                    >
-                      <span className={`text-[9px] absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap ${textColor}`}>
-                        {item.count}
-                      </span>
-                    </div>
+                      className={`w-full rounded-t-xs transition-all duration-300 ${barColor}`}
+                    />
 
                     {/* Label every 4 hours */}
                     {item.hourNum % 4 === 0 ? (
@@ -775,7 +976,7 @@ export const AccessStatsTab: React.FC = () => {
             </div>
 
             <span className="text-slate-400 text-[10px]">
-              {totalAccessesForSelectedDate} acessos em {formatDateFormatted(activeDateStr)}
+              Horário Oficial de Brasília (BRT)
             </span>
           </div>
         </div>
@@ -791,7 +992,7 @@ export const AccessStatsTab: React.FC = () => {
               <span>Dispositivos Utilizados</span>
             </h4>
             <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
-              {formatDateFormatted(activeDateStr)}
+              {activeFocusDate ? formatDateFormatted(activeFocusDate) : `${formatDateFormatted(activeStartDate)} - ${formatDateFormatted(activeEndDate)}`}
             </span>
           </div>
 
@@ -848,7 +1049,7 @@ export const AccessStatsTab: React.FC = () => {
               <span>Navegadores Mais Usados</span>
             </h4>
             <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
-              {formatDateFormatted(activeDateStr)}
+              {activeFocusDate ? formatDateFormatted(activeFocusDate) : `${formatDateFormatted(activeStartDate)} - ${formatDateFormatted(activeEndDate)}`}
             </span>
           </div>
 
@@ -856,7 +1057,7 @@ export const AccessStatsTab: React.FC = () => {
             {Object.entries(selectedBrowserStats)
               .slice(0, 4)
               .map(([browserName, count]) => {
-                const totalDay = totalAccessesForSelectedDate || 1;
+                const totalDay = targetTotal || 1;
                 const pct = Math.round((count / totalDay) * 100) || 10;
                 return (
                   <div key={browserName} className="flex items-center justify-between text-xs">
@@ -881,13 +1082,13 @@ export const AccessStatsTab: React.FC = () => {
               <span>Seções Mais Acessadas</span>
             </h4>
             <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
-              {formatDateFormatted(activeDateStr)}
+              {activeFocusDate ? formatDateFormatted(activeFocusDate) : `${formatDateFormatted(activeStartDate)} - ${formatDateFormatted(activeEndDate)}`}
             </span>
           </div>
 
           <div className="space-y-2.5 pt-1">
             {Object.entries(selectedTabStats).map(([tabName, count]) => {
-              const totalDay = totalAccessesForSelectedDate || 1;
+              const totalDay = targetTotal || 1;
               const pct = Math.round((count / totalDay) * 100) || 25;
               return (
                 <div key={tabName} className="space-y-1">
@@ -905,18 +1106,24 @@ export const AccessStatsTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Access Logs Feed Table for Selected Date */}
+      {/* Access Logs Feed Table for Selected Date/Period */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
               <Activity className="w-5 h-5 text-emerald-600" />
-              <span>Feed de Registros de Acessos em {formatDateFormatted(activeDateStr)}</span>
+              <span>
+                {activeFocusDate
+                  ? `Feed de Registros de Acessos em ${formatDateFormatted(activeFocusDate)}`
+                  : `Feed de Registros de Acessos (${formatDateFormatted(activeStartDate)} a ${formatDateFormatted(activeEndDate)})`}
+              </span>
             </h3>
-            <p className="text-xs text-slate-500">Conexões e requisições registradas na data selecionada</p>
+            <p className="text-xs text-slate-500">
+              {activeFocusDate ? 'Conexões e requisições registradas na data em foco' : 'Conexões e requisições registradas no período selecionado'}
+            </p>
           </div>
           <span className="text-xs font-bold text-slate-700 bg-red-50 border border-red-100 px-3 py-1 rounded-full self-start sm:self-auto">
-            Mostrando {selectedDateLogs.length > 0 ? selectedDateLogs.length : data.recentLogs.length} acessos registrados
+            Mostrando {targetLogs.length > 0 ? targetLogs.length : data.recentLogs.length} acessos registrados
           </span>
         </div>
 
@@ -932,7 +1139,7 @@ export const AccessStatsTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-              {(selectedDateLogs.length > 0 ? selectedDateLogs : data.recentLogs).map((log) => {
+              {(targetLogs.length > 0 ? targetLogs : data.recentLogs).map((log) => {
                 const dateObj = new Date(log.timestamp);
                 const formattedTime = dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
