@@ -27,7 +27,7 @@ export default function App() {
   const [selectedTerminal, setSelectedTerminal] = useState<Terminal | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // Track site access on load and tab change
+  // Track site access on load and tab change, and maintain real-time heartbeat
   useEffect(() => {
     let visitorId = localStorage.getItem('claro_visitor_id');
     if (!visitorId) {
@@ -42,6 +42,7 @@ export default function App() {
         ? 'Leitor IA (Foto)'
         : 'Acessos no Site';
 
+    // Track access on tab change
     fetch('/api/track-access', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,6 +53,21 @@ export default function App() {
         screenWidth: window.innerWidth
       })
     }).catch((err) => console.log('Track access error', err));
+
+    // Send heartbeat every 20s while the user is actively browsing
+    const sendHeartbeat = () => {
+      fetch('/api/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitorId,
+          tab: tabName
+        })
+      }).catch(() => {});
+    };
+
+    const heartbeatInterval = setInterval(sendHeartbeat, 20000);
+    return () => clearInterval(heartbeatInterval);
   }, [activeTab]);
 
   // Toggle favorite
@@ -170,7 +186,7 @@ export default function App() {
   }, [searchQuery, selectedVoltage]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-red-600 selection:text-white pb-16">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-red-600 selection:text-white flex flex-col">
       {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
@@ -186,7 +202,7 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex-1 w-full pb-12">
         {/* Quick Header Stats */}
         <QuickStatsHeader />
 
@@ -348,6 +364,23 @@ export default function App() {
         {/* Tab Content 3: Métricas e Contador de Acessos ao Site */}
         {activeTab === 'acessos' && <AccessStatsTab />}
       </main>
+
+      {/* Footer */}
+      <footer className="mt-auto w-full border-t border-slate-200/90 bg-white/80 backdrop-blur-md py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="flex items-center space-x-2">
+            <span className="font-semibold text-slate-700">Catálogo Técnico de Fontes e Terminais</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500">Claro Brasil</span>
+          </div>
+          <div className="flex items-center space-x-2 text-xs text-slate-600">
+            <span>Desenvolvido por</span>
+            <span className="inline-flex items-center font-bold text-slate-900 tracking-wider px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs shadow-xs hover:border-red-400 hover:text-red-600 transition-colors">
+              CW_ROCHA
+            </span>
+          </div>
+        </div>
+      </footer>
 
       {/* Terminal Detail Modal */}
       <TerminalDetailModal
